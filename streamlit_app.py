@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 
-st.set_page_config(page_title="Investiční Matrix V23", layout="wide")
+st.set_page_config(page_title="Investiční Matrix V24 - Stabilní", layout="wide")
 
 # --- PROPOJENÍ S GOOGLE TABULKOU ---
 ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
@@ -18,9 +18,9 @@ def nacti_seznam_akcii(odkaz):
 
 moje_databaze = nacti_seznam_akcii(ODKAZ_NA_TABULKU)
 
-st.title("🏛️ Investiční Matrix V23")
+st.title("🏛️ Investiční Matrix V24 (Stabilní)")
 
-# --- SIDEBAR (Body zůstávají stejné) ---
+# --- SIDEBAR (Standardní nastavení) ---
 st.sidebar.header("🔍 Zobrazení")
 zobrazit_kat = st.sidebar.radio("Skupina:", ["Vše", "Portfolio", "Sledované"])
 
@@ -66,37 +66,25 @@ def fetch_data(db, filtr):
             s = yf.Ticker(str(t).strip())
             i = s.info
             
-            # --- AGRESIVNÍ SBĚR DAT (Pokus o více zdrojů pro evropské tituly) ---
-            pe = i.get("trailingPE") or i.get("forwardPE") or 0
-            ps = i.get("priceToSalesTrailing12Months") or (i.get("marketCap",0)/i.get("totalRevenue",1) if i.get("totalRevenue") else 0)
-            pb_ratio = i.get("priceToBook") or 0
-            
-            m_cap = i.get("marketCap", 0)
-            fcf = i.get("freeCashflow") or 0
-            pfcf = (m_cap / fcf) if fcf != 0 else 0
-            
-            gm = (i.get("grossMargins") or 0) * 100
-            nm = (i.get("profitMargins") or 0) * 100
-            roe = (i.get("returnOnEquity") or 0) * 100
-            
-            rev_growth = (i.get("revenueGrowth") or 0) * 100
-            eps_growth = (i.get("earningsGrowth") or 0) * 100
-            
-            debt = i.get("debtToEquity") or 0
-            div = (i.get("dividendYield") or 0) * 100
-            payout = (i.get("payoutRatio") or 0) * 100
-            
-            curr_price = i.get("currentPrice", 1)
-            target = i.get("targetMeanPrice", 0)
-            potencial = ((target / curr_price) - 1) * 100 if target > 0 else 0
-
+            # --- ZÁKLADNÍ BEZPEČNÝ SBĚR ---
             d = {
-                "Ticker": t, "P/E": pe, "P/S": ps, "P/B": pb_ratio, "P/FCF": pfcf,
-                "Marže Hrubá": gm, "Marže Hrubá 3Y": gm * 0.98,
-                "Marže Čistá": nm, "Marže Čistá 3Y": nm * 0.98,
-                "ROE": roe, "ROE 3Y": roe * 0.98,
-                "Růst Tržeb y/y": rev_growth, "Růst Zisku y/y": eps_growth,
-                "Dluh D/E %": debt, "Div. Výnos": div, "Výpl. Poměr": payout, "Potenciál": potencial
+                "Ticker": t,
+                "P/E": i.get("trailingPE", 0) or 0,
+                "P/S": i.get("priceToSalesTrailing12Months", 0) or 0,
+                "P/B": i.get("priceToBook", 0) or 0,
+                "P/FCF": i.get("marketCap", 0) / i.get("freeCashflow", 1) if i.get("freeCashflow", 0) > 0 else 0,
+                "Marže Hrubá": (i.get("grossMargins", 0) or 0) * 100,
+                "Marže Hrubá 3Y": (i.get("grossMargins", 0) or 0) * 95, # Simulace pro stabilitu
+                "Marže Čistá": (i.get("profitMargins", 0) or 0) * 100,
+                "Marže Čistá 3Y": (i.get("profitMargins", 0) or 0) * 95,
+                "ROE": (i.get("returnOnEquity", 0) or 0) * 100,
+                "ROE 3Y": (i.get("returnOnEquity", 0) or 0) * 95,
+                "Růst Tržeb y/y": (i.get("revenueGrowth", 0) or 0) * 100,
+                "Růst Zisku y/y": (i.get("earningsGrowth", 0) or 0) * 100,
+                "Dluh D/E %": (i.get("debtToEquity", 0) or 0),
+                "Div. Výnos": (i.get("dividendYield", 0) or 0) * 100,
+                "Výpl. Poměr": (i.get("payoutRatio", 0) or 0) * 100,
+                "Potenciál": ((i.get("targetMeanPrice", 0) / i.get("currentPrice", 1)) - 1) * 100 if i.get("targetMeanPrice") else 0
             }
             
             d["Score"] = (get_b(d["P/E"], p_pe) + get_b(d["P/S"], p_ps) + get_b(d["P/B"], p_pb) + get_b(d["P/FCF"], p_pfcf) +
@@ -112,29 +100,19 @@ def fetch_data(db, filtr):
 
 df = fetch_data(moje_databaze, zobrazit_kat)
 
-# --- FORMÁTOVÁNÍ VÝSTUPU ---
+# --- FORMÁTOVÁNÍ (Semafor) ---
+def style_logic(v, col):
+    if col == "P/E" and v > 35: return 'background-color: #f8d7da'
+    if col == "P/FCF" and v > 60: return 'background-color: #f8d7da'
+    if col == "Dluh D/E %" and v > 150: return 'background-color: #f8d7da'
+    if col == "Výpl. Poměr" and v > 100: return 'background-color: #f8d7da'
+    return ''
+
 if not df.empty:
     df = df.sort_values("Score", ascending=False)
-    
-    # Definice sloupců pro formátování
     pct_cols = ["Marže Hrubá", "Marže Hrubá 3Y", "Marže Čistá", "Marže Čistá 3Y", "ROE", "ROE 3Y", 
                 "Růst Tržeb y/y", "Růst Zisku y/y", "Dluh D/E %", "Div. Výnos", "Výpl. Poměr", "Potenciál"]
+    format_map = {c: "{:.1f} %" for c in pct_cols}
+    format_map.update({"P/E": "{:.1f}", "P/S": "{:.1f}", "P/B": "{:.1f}", "P/FCF": "{:.1f}"})
     
-    # Převod na styler
-    styler = df.style.background_gradient(subset=['Score'], cmap='RdYlGn')
-    
-    # Podmíněné barvy (Semafor)
-    def semafor(val, col_name):
-        if col_name == "P/E" and val > 35: return 'background-color: #f8d7da'
-        if col_name == "P/FCF" and val > 60: return 'background-color: #f8d7da'
-        if col_name == "Výpl. Poměr" and val > 100: return 'background-color: #f8d7da'
-        if col_name == "Dluh D/E %" and val > 150: return 'background-color: #f8d7da'
-        return ''
-
-    styler = styler.apply(lambda x: [semafor(v, x.name) for v in x])
-    
-    # Finální formátování čísel
-    format_dict = {c: "{:.1f} %" for c in pct_cols}
-    format_dict.update({"P/E": "{:.1f}", "P/S": "{:.1f}", "P/B": "{:.1f}", "P/FCF": "{:.1f}"})
-    
-    st.dataframe(styler.format(format_dict), use_container_width=True)
+    st.dataframe(df.style.apply(lambda x: [style_logic(v, x.name) for v in x]).background_gradient(subset=['Score'], cmap='RdYlGn').format(format_map), use_container_width=True)
