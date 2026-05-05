@@ -2,57 +2,49 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 
-# Nastavení stránky
-st.set_page_config(page_title="Investiční Stratég V5", layout="wide")
+st.set_page_config(page_title="Investiční Stratég V6", layout="wide")
 
-st.title("💎 Investiční Analýza s Matrix Editorem")
-st.write("Upravte body a hranice v levém panelu a sledujte přepočet v reálném čase.")
+st.title("⚖️ Pokročilé bodování v 5 pásmech")
+st.write("Definujte si 5 pásem pro každý ukazatel. Nastavení ovlivní všechny firmy v seznamu.")
 
-# --- SIDEBAR: NASTAVENÍ MATICE BODŮ ---
-st.sidebar.header("📊 Bodovací Matice")
+# --- SIDEBAR: NASTAVENÍ PÁSEM ---
+st.sidebar.header("🎯 Definice bodovacích pásem")
 
-# Sekce Čistá Marže
-with st.sidebar.expander("1. Čistá Marže (Profit Margin)", expanded=True):
-    m_h_val = st.number_input("Hranice pro max body (%)", value=20.0, key="m_h_v")
-    m_h_pts = st.number_input("Body za max hranici", value=10, key="m_h_p")
-    m_m_val = st.number_input("Hranice pro stř. body (%)", value=10.0, key="m_m_v")
-    m_m_pts = st.number_input("Body za stř. hranici", value=5, key="m_m_p")
+def vytvor_pasma(nazev, zkratka, default_hranice, default_body):
+    with st.sidebar.expander(f"Kritérium: {nazev}", expanded=False):
+        st.write("Nastavte horní hranici pásma a počet bodů:")
+        data = []
+        for i in range(5):
+            col1, col2 = st.columns(2)
+            with col1:
+                h = st.number_input(f"Pásmo {i+1} (do %)", value=default_hranice[i], key=f"{zkratka}_h_{i}")
+            with col2:
+                b = st.number_input(f"Body", value=default_body[i], key=f"{zkratka}_b_{i}")
+            data.append({"hranice": h, "body": b})
+        return data
 
-# Sekce ROE
-with st.sidebar.expander("2. ROE (Return on Equity)", expanded=True):
-    r_h_val = st.number_input("Hranice pro max body (ROE %)", value=15.0, key="r_h_v")
-    r_h_pts = st.number_input("Body za max hranici (ROE)", value=10, key="r_h_p")
-    r_m_val = st.number_input("Hranice pro stř. body (ROE %)", value=8.0, key="r_m_v")
-    r_m_pts = st.number_input("Body za stř. hranici (ROE)", value=5, key="r_m_p")
+# Definice pásem pro ROE (příklad: záporné, malé, střední, vysoké, extra)
+pasma_roe = vytvor_pasma("ROE", "roe", [0.0, 10.0, 20.0, 30.0, 999.0], [-5, 0, 5, 10, 15])
 
-# Sekce Debt to Equity (zde je méně lépe!)
-with st.sidebar.expander("3. Zadluženost (Debt/Equity)", expanded=True):
-    d_l_val = st.number_input("Hranice pro max body (Dluh pod)", value=0.5, key="d_l_v")
-    d_l_pts = st.number_input("Body za nízký dluh", value=10, key="d_l_p")
-    d_m_val = st.number_input("Hranice pro stř. body (Dluh pod)", value=1.5, key="d_m_v")
-    d_m_pts = st.number_input("Body za stř. dluh", value=5, key="d_m_p")
+# Definice pásem pro Marži
+pasma_marze = vytvor_pasma("Čistá Marže", "mar", [0.0, 10.0, 20.0, 30.0, 999.0], [-5, 0, 5, 10, 15])
 
 # --- FUNKCE PRO VÝPOČET SCORE ---
-def vypocitej_score(row):
+def pridel_body(hodnota, pasma):
+    # Procházíme pásma od nejnižšího
+    for p in pasma:
+        if hodnota <= p["hranice"]:
+            return p["body"]
+    return pasma[-1]["body"] # Pokud přesáhne vše, dostane body z posledního pásma
+
+def vypocitej_vysledek(row):
     score = 0
-    
-    # Bodování Marže
-    if row['Marze'] >= m_h_val: score += m_h_pts
-    elif row['Marze'] >= m_m_val: score += m_m_pts
-    
-    # Bodování ROE
-    if row['ROE'] >= r_h_val: score += r_h_pts
-    elif row['ROE'] >= r_m_val: score += r_m_pts
-    
-    # Bodování Dluhu (méně je lépe)
-    if row['Debt_Equity'] <= d_l_val: score += d_l_pts
-    elif row['Debt_Equity'] <= d_m_val: score += d_m_pts
-        
+    score += pridel_body(row['ROE'], pasma_roe)
+    score += pridel_body(row['Marze'], pasma_marze)
     return score
 
-# --- STAHOVÁNÍ DAT ---
-# Sem si doplňte své tickery ze sloupce B ve vašem Excelu
-moje_akcie = ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA", "V", "MA", "COST", "KO", "PEP"]
+# --- DATA (Vaše tickery) ---
+moje_akcie = ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA", "V", "MA", "COST"]
 
 @st.cache_data(ttl=3600)
 def fetch_data(tickers):
@@ -61,32 +53,30 @@ def fetch_data(tickers):
         try:
             s = yf.Ticker(t)
             info = s.info
-            # Převod dat z yfinance na standardní formát
-            d = {
+            rows.append({
                 "Ticker": t,
                 "Název": info.get("longName", t),
-                "Cena": info.get("currentPrice"),
-                "Marze": info.get("profitMargins", 0) * 100,
-                "ROE": info.get("returnOnEquity", 0) * 100,
-                "Debt_Equity": info.get("debtToEquity", 0) / 100 if info.get("debtToEquity") else 0
-            }
-            rows.append(d)
-        except:
-            continue
+                "ROE": (info.get("returnOnEquity", 0) or 0) * 100,
+                "Marze": (info.get("profitMargins", 0) or 0) * 100
+            })
+        except: continue
     return pd.DataFrame(rows)
 
-# Získání dat a výpočet score
+# Výpočet
 df = fetch_data(moje_akcie)
-df["Score"] = df.apply(vypocitej_score, axis=1)
-
-# Seřazení
-df = df.sort_values(by="Score", ascending=False)
+df["Celkové Score"] = df.apply(vypocitej_vysledek, axis=1)
+df = df.sort_values(by="Celkové Score", ascending=False)
 
 # --- ZOBRAZENÍ ---
-st.subheader("📊 Výsledky analýzy")
+st.subheader("📊 Analýza firem")
 st.dataframe(
-    df.style.background_gradient(subset=['Score'], cmap='YlGn'), # Žluto-zelená škála
+    df.style.background_gradient(subset=['Celkové Score'], cmap='RdYlGn'),
     use_container_width=True
 )
 
-st.info("Tip: Změňte hodnoty v políčkách vlevo (např. zvyšte body za ROE) a tabulka se okamžitě přerovná.")
+st.markdown("""
+### Jak fungují pásma:
+Aplikace vezme hodnotu ukazatele (např. ROE) a podívá se do vašich 5 pásem vlevo. 
+Najde první pásmo, do kterého se hodnota vejde, a přidělí příslušné body. 
+*Příklad: Pokud nastavíte Pásmo 1 'do 0 %' za -5 bodů a firma má ROE -2 %, dostane ihned -5 bodů.*
+""")
