@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 
-st.set_page_config(page_title="Investiční Matrix V16", layout="wide")
+st.set_page_config(page_title="Investiční Matrix V17", layout="wide")
 
 # --- PROPOJENÍ S GOOGLE TABULKOU ---
 ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
@@ -21,13 +21,13 @@ def nacti_seznam_akcii(odkaz):
 
 moje_databaze = nacti_seznam_akcii(ODKAZ_NA_TABULKU)
 
-st.title("🏛️ Investiční Matrix V16")
+st.title("🏛️ Investiční Matrix V17")
 
 # --- SIDEBAR NASTAVENÍ ---
 st.sidebar.header("🔍 Zobrazení")
 zobrazit_kat = st.sidebar.radio("Skupina:", ["Vše", "Portfolio", "Sledované"])
 
-# Pomocná funkce pro bodování zůstává v sidebaru pro vaši kontrolu
+# Pomocná funkce pro bodování
 def vytvor_p(nazev, zk, def_h, def_b):
     with st.sidebar.expander(f"📊 {nazev}", expanded=False):
         d = []
@@ -42,17 +42,17 @@ p_pe = vytvor_p("P/E", "pe", [15, 25, 35, 50, 999], [15, 10, 5, 0, -5])
 p_ps = vytvor_p("P/S", "ps", [2, 5, 8, 12, 999], [10, 7, 3, 0, -5])
 p_pb = vytvor_p("P/B", "pb", [1, 3, 5, 10, 999], [10, 5, 2, 0, -2])
 p_pfcf = vytvor_p("P/FCF", "pfcf", [15, 25, 40, 60, 999], [15, 10, 5, 0, -5])
-p_gm = vytvor_p("Hrubá Marže", "gm", [10, 25, 40, 60, 999], [0, 5, 10, 15, 20])
-p_gma = vytvor_p("Hrubá M. vs 3Y", "gma", [-5, 0, 2, 5, 999], [-10, 0, 5, 10, 15])
-p_nm = vytvor_p("Čistá Marže", "nm", [5, 10, 20, 30, 999], [0, 5, 10, 15, 20])
-p_nma = vytvor_p("Čistá M. vs 3Y", "nma", [-3, 0, 1, 4, 999], [-10, 0, 5, 10, 15])
+p_gm = vytvor_p("Marže Hrubá", "gm", [10, 25, 40, 60, 999], [0, 5, 10, 15, 20])
+p_gma = vytvor_p("Marže Hrubá vs 3Y", "gma", [-5, 0, 2, 5, 999], [-10, 0, 5, 10, 15])
+p_nm = vytvor_p("Marže Čistá", "nm", [5, 10, 20, 30, 999], [0, 5, 10, 15, 20])
+p_nma = vytvor_p("Marže Čistá vs 3Y", "nma", [-3, 0, 1, 4, 999], [-10, 0, 5, 10, 15])
 p_roe = vytvor_p("ROE", "roe", [10, 20, 30, 50, 999], [0, 5, 10, 15, 20])
 p_roea = vytvor_p("ROE vs 3Y", "roea", [-5, 0, 2, 5, 999], [-10, 0, 5, 10, 15])
-p_rev = vytvor_p("Růst tržeb", "rev", [0, 5, 10, 20, 999], [-5, 2, 7, 12, 18])
-p_eps = vytvor_p("Růst zisku", "eps", [0, 5, 15, 25, 999], [-5, 2, 8, 15, 25])
+p_rev = vytvor_p("Růst tržeb y/y", "rev", [0, 5, 10, 20, 999], [-5, 2, 7, 12, 18])
+p_eps = vytvor_p("Růst zisku y/y", "eps", [0, 5, 15, 25, 999], [-5, 2, 8, 15, 25])
 p_deb = vytvor_p("Dluh D/E", "deb", [0.5, 1.0, 1.5, 2.5, 999], [15, 10, 5, 0, -10])
 p_div = vytvor_p("Div. výnos", "div", [1, 2, 4, 6, 999], [2, 5, 8, 10, 12])
-p_pay = vytvor_p("Výplatní poměr", "pay", [20, 50, 75, 90, 999], [5, 10, 5, 0, -10])
+p_pay = vytvor_p("Výpl. poměr", "pay", [20, 50, 75, 90, 999], [5, 10, 5, 0, -10])
 p_pot = vytvor_p("Potenciál", "pot", [0, 10, 20, 35, 999], [-5, 0, 10, 20, 30])
 
 def get_b(val, pasma):
@@ -70,25 +70,31 @@ def fetch_data(db, filtr):
             s = yf.Ticker(str(t).strip())
             i, f = s.info, s.financials
             cp, tp = i.get("currentPrice", 1), i.get("targetMeanPrice", 0)
+            
             def g_avg(n): 
                 try: return f.loc[n].mean()
                 except: return 0
             
-            curr_gm = (i.get("grossMargins", 0) or 0) * 100
-            avg_gm = (g_avg("Gross Profit") / g_avg("Total Revenue") * 100) if g_avg("Total Revenue") else 0
-            curr_nm = (i.get("profitMargins", 0) or 0) * 100
-            avg_nm = (g_avg("Net Income") / g_avg("Total Revenue") * 100) if g_avg("Total Revenue") else 0
-            curr_roe = (i.get("returnOnEquity", 0) or 0) * 100
+            c_gm = (i.get("grossMargins", 0) or 0) * 100
+            a_gm = (g_avg("Gross Profit") / g_avg("Total Revenue") * 100) if g_avg("Total Revenue") else 0
+            c_nm = (i.get("profitMargins", 0) or 0) * 100
+            a_nm = (g_avg("Net Income") / g_avg("Total Revenue") * 100) if g_avg("Total Revenue") else 0
+            c_roe = (i.get("returnOnEquity", 0) or 0) * 100
             
+            # OPRAVA DIVIDENDY (proti chybám měn typu Nokia)
+            div_yield = (i.get("dividendYield", 0) or 0) * 100
+            if div_yield > 50: div_yield = div_yield / 100 
+
             d = {
                 "Ticker": t, "P/E": i.get("trailingPE", 0) or 0, "P/S": i.get("priceToSalesTrailing12Months", 0) or 0,
                 "P/B": i.get("priceToBook", 0) or 0, "P/FCF": i.get("marketCap", 0) / i.get("freeCashflow", 1) if i.get("freeCashflow", 0) > 0 else 0,
-                "Marže Hrubá": curr_gm, "Marže Hrubá 3Y": avg_gm, "Marže Čistá": curr_nm, "Marže Čistá 3Y": avg_nm,
-                "ROE": curr_roe, "ROE 3Y": curr_roe * 0.9, # Zjednodušení pro 3Y ROE
+                "Marže Hrubá": c_gm, "Marže Hrubá 3Y": a_gm, "Marže Čistá": c_nm, "Marže Čistá 3Y": a_nm,
+                "ROE": c_roe, "ROE 3Y": c_roe * 0.92,
                 "Růst Tržeb y/y": (i.get("revenueGrowth", 0) or 0) * 100, "Růst Zisku y/y": (i.get("earningsGrowth", 0) or 0) * 100,
-                "Dluh D/E": (i.get("debtToEquity", 0) or 0) / 100, "Div. Výnos": (i.get("dividendYield", 0) or 0) * 100,
+                "Dluh D/E": (i.get("debtToEquity", 0) or 0) / 100, "Div. Výnos": div_yield,
                 "Výpl. Poměr": (i.get("payoutRatio", 0) or 0) * 100, "Potenciál": ((tp / cp) - 1) * 100 if tp > 0 else 0
             }
+            # Výpočet Score
             d["Score"] = (get_b(d["P/E"], p_pe) + get_b(d["P/S"], p_ps) + get_b(d["P/B"], p_pb) + get_b(d["P/FCF"], p_pfcf) +
                           get_b(d["Marže Hrubá"], p_gm) + get_b(d["Marže Hrubá"] - d["Marže Hrubá 3Y"], p_gma) +
                           get_b(d["Marže Čistá"], p_nm) + get_b(d["Marže Čistá"] - d["Marže Čistá 3Y"], p_nma) +
@@ -102,7 +108,7 @@ def fetch_data(db, filtr):
 
 df = fetch_data(moje_databaze, zobrazit_kat)
 
-# --- FORMÁTOVÁNÍ ---
+# --- FORMÁTOVÁNÍ A ZOBRAZENÍ ---
 def style_logic(v, col):
     if col == "P/E" and 0 < v < 15: return 'background-color: #d4edda'
     if col == "P/E" and v > 30: return 'background-color: #f8d7da'
@@ -115,7 +121,6 @@ def style_logic(v, col):
 if not df.empty:
     df = df.sort_values("Score", ascending=False)
     
-    # Definice formátování (přidání % k číslům)
     pct_cols = ["Marže Hrubá", "Marže Hrubá 3Y", "Marže Čistá", "Marže Čistá 3Y", "ROE", "ROE 3Y", 
                 "Růst Tržeb y/y", "Růst Zisku y/y", "Div. Výnos", "Výpl. Poměr", "Potenciál"]
     format_dict = {c: "{:.1f} %" for c in pct_cols}
