@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 
-st.set_page_config(page_title="Investiční Matrix V19", layout="wide")
+st.set_page_config(page_title="Investiční Matrix V20", layout="wide")
 
 # --- PROPOJENÍ S GOOGLE TABULKOU ---
 ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
@@ -21,7 +21,7 @@ def nacti_seznam_akcii(odkaz):
 
 moje_databaze = nacti_seznam_akcii(ODKAZ_NA_TABULKU)
 
-st.title("🏛️ Investiční Matrix V19")
+st.title("🏛️ Investiční Matrix V20")
 
 # --- SIDEBAR NASTAVENÍ ---
 st.sidebar.header("🔍 Zobrazení")
@@ -68,23 +68,38 @@ def fetch_data(db, filtr):
         try:
             s = yf.Ticker(str(t).strip())
             i, f = s.info, s.financials
-            cp, tp = i.get("currentPrice", 1), i.get("targetMeanPrice", 0)
+            m_cap = i.get("marketCap", 0)
             
+            # Záchranný výpočet P/E, pokud chybí
+            pe = i.get("trailingPE")
+            if pe is None or pe == 0:
+                net_inc = f.loc["Net Income"].iloc[0] if "Net Income" in f.index else 0
+                pe = (m_cap / net_inc) if net_inc > 0 else 0
+
+            # Záchranný výpočet marží
+            curr_nm = (i.get("profitMargins", 0) or 0) * 100
+            if curr_nm == 0:
+                rev = i.get("totalRevenue", 0)
+                net_inc = f.loc["Net Income"].iloc[0] if "Net Income" in f.index else 0
+                curr_nm = (net_inc / rev * 100) if rev > 0 else 0
+
             def g_avg(n): 
                 try: return f.loc[n].mean()
                 except: return 0
             
-            c_gm, c_nm, c_roe = (i.get("grossMargins", 0) or 0) * 100, (i.get("profitMargins", 0) or 0) * 100, (i.get("returnOnEquity", 0) or 0) * 100
+            c_gm = (i.get("grossMargins", 0) or 0) * 100
             a_gm = (g_avg("Gross Profit") / g_avg("Total Revenue") * 100) if g_avg("Total Revenue") else 0
             a_nm = (g_avg("Net Income") / g_avg("Total Revenue") * 100) if g_avg("Total Revenue") else 0
+            c_roe = (i.get("returnOnEquity", 0) or 0) * 100
             
+            cp, tp = i.get("currentPrice", 1), i.get("targetMeanPrice", 0)
             div_yield = (i.get("dividendYield", 0) or 0) * 100
             if div_yield > 50: div_yield = div_yield / 100 
 
             d = {
-                "Ticker": t, "P/E": i.get("trailingPE", 0) or 0, "P/S": i.get("priceToSalesTrailing12Months", 0) or 0,
-                "P/B": i.get("priceToBook", 0) or 0, "P/FCF": i.get("marketCap", 0) / i.get("freeCashflow", 1) if i.get("freeCashflow", 0) > 0 else 0,
-                "Marže Hrubá": c_gm, "Marže Hrubá 3Y": a_gm, "Marže Čistá": c_nm, "Marže Čistá 3Y": a_nm,
+                "Ticker": t, "P/E": pe, "P/S": i.get("priceToSalesTrailing12Months", 0) or 0,
+                "P/B": i.get("priceToBook", 0) or 0, "P/FCF": m_cap / i.get("freeCashflow", 1) if i.get("freeCashflow", 0) > 0 else 0,
+                "Marže Hrubá": c_gm, "Marže Hrubá 3Y": a_gm, "Marže Čistá": curr_nm, "Marže Čistá 3Y": a_nm,
                 "ROE": c_roe, "ROE 3Y": c_roe * 0.92,
                 "Růst Tržeb y/y": (i.get("revenueGrowth", 0) or 0) * 100, "Růst Zisku y/y": (i.get("earningsGrowth", 0) or 0) * 100,
                 "Dluh D/E %": (i.get("debtToEquity", 0) or 0), "Div. Výnos": div_yield,
@@ -103,7 +118,6 @@ def fetch_data(db, filtr):
 
 df = fetch_data(moje_databaze, zobrazit_kat)
 
-# --- SEMAFOR LOGIKA ---
 def style_logic(v, col):
     if col == "P/E" and v > 35: return 'background-color: #f8d7da; color: #721c24'
     if col == "P/E" and 0 < v < 15: return 'background-color: #d4edda; color: #155724'
