@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 
-st.set_page_config(page_title="Investiční Matrix V18", layout="wide")
+st.set_page_config(page_title="Investiční Matrix V19", layout="wide")
 
 # --- PROPOJENÍ S GOOGLE TABULKOU ---
 ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
@@ -21,7 +21,7 @@ def nacti_seznam_akcii(odkaz):
 
 moje_databaze = nacti_seznam_akcii(ODKAZ_NA_TABULKU)
 
-st.title("🏛️ Investiční Matrix V18")
+st.title("🏛️ Investiční Matrix V19")
 
 # --- SIDEBAR NASTAVENÍ ---
 st.sidebar.header("🔍 Zobrazení")
@@ -49,7 +49,7 @@ p_roe = vytvor_p("ROE", "roe", [10, 20, 30, 50, 999], [0, 5, 10, 15, 20])
 p_roea = vytvor_p("ROE vs 3Y", "roea", [-5, 0, 2, 5, 999], [-10, 0, 5, 10, 15])
 p_rev = vytvor_p("Růst tržeb y/y", "rev", [0, 5, 10, 20, 999], [-5, 2, 7, 12, 18])
 p_eps = vytvor_p("Růst zisku y/y", "eps", [0, 5, 15, 25, 999], [-5, 2, 8, 15, 25])
-p_deb = vytvor_p("Dluh D/E", "deb", [0.5, 1.0, 1.5, 2.5, 999], [15, 10, 5, 0, -10])
+p_deb = vytvor_p("Dluh D/E %", "deb", [50, 100, 150, 250, 999], [15, 10, 5, 0, -10])
 p_div = vytvor_p("Div. výnos", "div", [1, 2, 4, 6, 999], [2, 5, 8, 10, 12])
 p_pay = vytvor_p("Výpl. poměr", "pay", [20, 50, 75, 90, 999], [5, 10, 5, 0, -10])
 p_pot = vytvor_p("Potenciál", "pot", [0, 10, 20, 35, 999], [-5, 0, 10, 20, 30])
@@ -74,11 +74,9 @@ def fetch_data(db, filtr):
                 try: return f.loc[n].mean()
                 except: return 0
             
-            c_gm = (i.get("grossMargins", 0) or 0) * 100
+            c_gm, c_nm, c_roe = (i.get("grossMargins", 0) or 0) * 100, (i.get("profitMargins", 0) or 0) * 100, (i.get("returnOnEquity", 0) or 0) * 100
             a_gm = (g_avg("Gross Profit") / g_avg("Total Revenue") * 100) if g_avg("Total Revenue") else 0
-            c_nm = (i.get("profitMargins", 0) or 0) * 100
             a_nm = (g_avg("Net Income") / g_avg("Total Revenue") * 100) if g_avg("Total Revenue") else 0
-            c_roe = (i.get("returnOnEquity", 0) or 0) * 100
             
             div_yield = (i.get("dividendYield", 0) or 0) * 100
             if div_yield > 50: div_yield = div_yield / 100 
@@ -89,7 +87,7 @@ def fetch_data(db, filtr):
                 "Marže Hrubá": c_gm, "Marže Hrubá 3Y": a_gm, "Marže Čistá": c_nm, "Marže Čistá 3Y": a_nm,
                 "ROE": c_roe, "ROE 3Y": c_roe * 0.92,
                 "Růst Tržeb y/y": (i.get("revenueGrowth", 0) or 0) * 100, "Růst Zisku y/y": (i.get("earningsGrowth", 0) or 0) * 100,
-                "Dluh D/E": (i.get("debtToEquity", 0) or 0) / 100, "Div. Výnos": div_yield,
+                "Dluh D/E %": (i.get("debtToEquity", 0) or 0), "Div. Výnos": div_yield,
                 "Výpl. Poměr": (i.get("payoutRatio", 0) or 0) * 100, "Potenciál": ((tp / cp) - 1) * 100 if tp > 0 else 0
             }
             d["Score"] = (get_b(d["P/E"], p_pe) + get_b(d["P/S"], p_ps) + get_b(d["P/B"], p_pb) + get_b(d["P/FCF"], p_pfcf) +
@@ -97,7 +95,7 @@ def fetch_data(db, filtr):
                           get_b(d["Marže Čistá"], p_nm) + get_b(d["Marže Čistá"] - d["Marže Čistá 3Y"], p_nma) +
                           get_b(d["ROE"], p_roe) + get_b(d["ROE"] - d["ROE 3Y"], p_roea) +
                           get_b(d["Růst Tržeb y/y"], p_rev) + get_b(d["Růst Zisku y/y"], p_eps) +
-                          get_b(d["Dluh D/E"], p_deb) + get_b(d["Div. Výnos"], p_div) + get_b(d["Výpl. Poměr"], p_pay) + get_b(d["Potenciál"], p_pot))
+                          get_b(d["Dluh D/E %"], p_deb) + get_b(d["Div. Výnos"], p_div) + get_b(d["Výpl. Poměr"], p_pay) + get_b(d["Potenciál"], p_pot))
             res.append(d)
         except: continue
         pb.progress((idx + 1) / len(tickery))
@@ -105,28 +103,26 @@ def fetch_data(db, filtr):
 
 df = fetch_data(moje_databaze, zobrazit_kat)
 
-# --- FORMÁTOVÁNÍ A ZOBRAZENÍ ---
+# --- SEMAFOR LOGIKA ---
 def style_logic(v, col):
-    if col == "P/E":
-        if 0 < v < 15: return 'background-color: #d4edda; color: #155724'
-        if v > 30: return 'background-color: #f8d7da; color: #721c24'
+    if col == "P/E" and v > 35: return 'background-color: #f8d7da; color: #721c24'
+    if col == "P/E" and 0 < v < 15: return 'background-color: #d4edda; color: #155724'
+    if col == "P/S" and v > 12: return 'background-color: #f8d7da; color: #721c24'
+    if col == "P/FCF" and v > 60: return 'background-color: #f8d7da; color: #721c24'
     if col in ["Marže Čistá", "ROE"]:
         if v > 15: return 'background-color: #d4edda; color: #155724'
         if v < 5: return 'background-color: #f8d7da; color: #721c24'
-    if col == "Dluh D/E":
-        if v < 0.5: return 'background-color: #d4edda; color: #155724'
-        if v > 1.5: return 'background-color: #f8d7da; color: #721c24'
-    if col == "Výpl. Poměr":
-        if v > 100: return 'background-color: #f8d7da; color: #721c24' # Červená pro neudržitelnou dividendu
+    if col == "Dluh D/E %" and v > 150: return 'background-color: #f8d7da; color: #721c24'
+    if col == "Dluh D/E %" and v < 50: return 'background-color: #d4edda; color: #155724'
+    if col == "Výpl. Poměr" and v > 100: return 'background-color: #f8d7da; color: #721c24'
     return ''
 
 if not df.empty:
     df = df.sort_values("Score", ascending=False)
-    
     pct_cols = ["Marže Hrubá", "Marže Hrubá 3Y", "Marže Čistá", "Marže Čistá 3Y", "ROE", "ROE 3Y", 
-                "Růst Tržeb y/y", "Růst Zisku y/y", "Div. Výnos", "Výpl. Poměr", "Potenciál"]
+                "Růst Tržeb y/y", "Růst Zisku y/y", "Dluh D/E %", "Div. Výnos", "Výpl. Poměr", "Potenciál"]
     format_dict = {c: "{:.1f} %" for c in pct_cols}
-    format_dict.update({"P/E": "{:.1f}", "P/S": "{:.1f}", "P/B": "{:.1f}", "P/FCF": "{:.1f}", "Dluh D/E": "{:.2f}"})
+    format_dict.update({"P/E": "{:.1f}", "P/S": "{:.1f}", "P/B": "{:.1f}", "P/FCF": "{:.1f}"})
 
     st.dataframe(
         df.style.apply(lambda x: [style_logic(v, x.name) for v in x])
