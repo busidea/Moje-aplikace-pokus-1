@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 
-st.set_page_config(page_title="Investiční Matrix V17", layout="wide")
+st.set_page_config(page_title="Investiční Matrix V18", layout="wide")
 
 # --- PROPOJENÍ S GOOGLE TABULKOU ---
 ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
@@ -21,13 +21,12 @@ def nacti_seznam_akcii(odkaz):
 
 moje_databaze = nacti_seznam_akcii(ODKAZ_NA_TABULKU)
 
-st.title("🏛️ Investiční Matrix V17")
+st.title("🏛️ Investiční Matrix V18")
 
 # --- SIDEBAR NASTAVENÍ ---
 st.sidebar.header("🔍 Zobrazení")
 zobrazit_kat = st.sidebar.radio("Skupina:", ["Vše", "Portfolio", "Sledované"])
 
-# Pomocná funkce pro bodování
 def vytvor_p(nazev, zk, def_h, def_b):
     with st.sidebar.expander(f"📊 {nazev}", expanded=False):
         d = []
@@ -81,7 +80,6 @@ def fetch_data(db, filtr):
             a_nm = (g_avg("Net Income") / g_avg("Total Revenue") * 100) if g_avg("Total Revenue") else 0
             c_roe = (i.get("returnOnEquity", 0) or 0) * 100
             
-            # OPRAVA DIVIDENDY (proti chybám měn typu Nokia)
             div_yield = (i.get("dividendYield", 0) or 0) * 100
             if div_yield > 50: div_yield = div_yield / 100 
 
@@ -94,7 +92,6 @@ def fetch_data(db, filtr):
                 "Dluh D/E": (i.get("debtToEquity", 0) or 0) / 100, "Div. Výnos": div_yield,
                 "Výpl. Poměr": (i.get("payoutRatio", 0) or 0) * 100, "Potenciál": ((tp / cp) - 1) * 100 if tp > 0 else 0
             }
-            # Výpočet Score
             d["Score"] = (get_b(d["P/E"], p_pe) + get_b(d["P/S"], p_ps) + get_b(d["P/B"], p_pb) + get_b(d["P/FCF"], p_pfcf) +
                           get_b(d["Marže Hrubá"], p_gm) + get_b(d["Marže Hrubá"] - d["Marže Hrubá 3Y"], p_gma) +
                           get_b(d["Marže Čistá"], p_nm) + get_b(d["Marže Čistá"] - d["Marže Čistá 3Y"], p_nma) +
@@ -110,12 +107,17 @@ df = fetch_data(moje_databaze, zobrazit_kat)
 
 # --- FORMÁTOVÁNÍ A ZOBRAZENÍ ---
 def style_logic(v, col):
-    if col == "P/E" and 0 < v < 15: return 'background-color: #d4edda'
-    if col == "P/E" and v > 30: return 'background-color: #f8d7da'
-    if col in ["Marže Čistá", "ROE"] and v > 15: return 'background-color: #d4edda'
-    if col in ["Marže Čistá", "ROE"] and v < 5: return 'background-color: #f8d7da'
-    if col == "Dluh D/E" and v < 0.5: return 'background-color: #d4edda'
-    if col == "Dluh D/E" and v > 1.5: return 'background-color: #f8d7da'
+    if col == "P/E":
+        if 0 < v < 15: return 'background-color: #d4edda; color: #155724'
+        if v > 30: return 'background-color: #f8d7da; color: #721c24'
+    if col in ["Marže Čistá", "ROE"]:
+        if v > 15: return 'background-color: #d4edda; color: #155724'
+        if v < 5: return 'background-color: #f8d7da; color: #721c24'
+    if col == "Dluh D/E":
+        if v < 0.5: return 'background-color: #d4edda; color: #155724'
+        if v > 1.5: return 'background-color: #f8d7da; color: #721c24'
+    if col == "Výpl. Poměr":
+        if v > 100: return 'background-color: #f8d7da; color: #721c24' # Červená pro neudržitelnou dividendu
     return ''
 
 if not df.empty:
