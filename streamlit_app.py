@@ -2,29 +2,40 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 
-st.set_page_config(page_title="Investiční Stratég V13 - Full", layout="wide")
+st.set_page_config(page_title="Investiční Stratég V14 - Google Sheets", layout="wide")
 
-# --- KOMPLETNÍ DATABÁZE ---
-moje_databaze = {
-    "HEI.DE": "Portfolio", "HEIJM.AS": "Portfolio", "CEZ.PR": "Portfolio",
-    "GOOGL": "Portfolio", "VIG.PR": "Portfolio", "KOMB.PR": "Portfolio",
-    "MONET.PR": "Portfolio", "SHL.DE": "Portfolio", "VOW3.DE": "Portfolio",
-    "PLTR": "Portfolio", "HPE": "Portfolio", "QD": "Portfolio",
-    "BAS.DE": "Portfolio", "NOKIA.HE": "Portfolio", "META": "Portfolio",
-    "GSK": "Portfolio", "NOVO-B.CO": "Portfolio", "GTN": "Portfolio",
-    "PFE": "Portfolio", "STLAM.MI": "Portfolio",
-    # Sledované (přidal jsem pár významných pro ukázku, doplňte si další)
-    "MSFT": "Sledované", "AAPL": "Sledované", "NVDA": "Sledované", 
-    "ASML.AS": "Sledované", "KO": "Sledované", "PEP": "Sledované"
-}
+# --- PROPOJENÍ S GOOGLE TABULKOU ---
+ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
 
-st.title("🏛️ Plnohodnotný Investiční Terminál")
+@st.cache_data(ttl=600) # Data o seznamu akcií se obnoví každých 10 minut
+def nacti_seznam_akcii(odkaz):
+    try:
+        # Úprava URL pro přímé stažení CSV
+        csv_url = odkaz.replace('/edit?usp=sharing', '/export?format=csv')
+        # Odstranění případných parametrů na konci a vynucení exportu
+        if '/export' not in csv_url:
+            csv_url = odkaz.split('/edit')[0] + '/export?format=csv'
+        
+        ex_df = pd.read_csv(csv_url)
+        # Očištění názvů sloupců od mezer
+        ex_df.columns = ex_df.columns.str.strip()
+        # Vytvoření slovníku {Ticker: Kategorie}
+        return pd.Series(ex_df.Kategorie.values, index=ex_df.Ticker).to_dict()
+    except Exception as e:
+        st.error(f"Chyba při načítání Google tabulky. Zkontrolujte názvy sloupců 'Ticker' a 'Kategorie'. Detail: {e}")
+        return {}
+
+# Načtení databáze z vašeho odkazu
+moje_databaze = nacti_seznam_akcii(ODKAZ_NA_TABULKU)
+
+st.title("🏛️ Profesionální Investiční Matrix")
+st.caption(f"Data načtena z Google Sheets. Aktuálně sledujete {len(moje_databaze)} titulů.")
 
 # --- SIDEBAR: FILTRY A 16 UKAZATELŮ ---
 st.sidebar.header("🔍 Zobrazení")
-zobrazit_kat = st.sidebar.radio("Skupina:", ["Vše", "Portfolio", "Sledované"])
+zobrazit_kat = st.sidebar.radio("Skupina k analýze:", ["Vše", "Portfolio", "Sledované"])
 
-st.sidebar.header("🎯 Bodovací pásma")
+st.sidebar.header("🎯 Nastavení bodování")
 def vytvor_p(nazev, zk, def_h, def_b):
     with st.sidebar.expander(f"📊 {nazev}", expanded=False):
         d = []
@@ -35,7 +46,7 @@ def vytvor_p(nazev, zk, def_h, def_b):
             d.append({"h": h, "b": b})
         return d
 
-# Definice všech 16 bodovacích logik
+# Definice 16 ukazatelů (pásma a body)
 p_pe   = vytvor_p("P/E Ratio", "pe", [15, 25, 35, 50, 999], [15, 10, 5, 0, -5])
 p_ps   = vytvor_p("P/S Ratio", "ps", [2, 5, 8, 12, 999], [10, 7, 3, 0, -5])
 p_pb   = vytvor_p("P/B Ratio", "pb", [1, 3, 5, 10, 999], [10, 5, 2, 0, -2])
@@ -61,16 +72,17 @@ def get_b(val, pasma):
 # --- DATA ENGINE ---
 @st.cache_data(ttl=3600)
 def fetch_all_data(db, filtr):
+    if not db: return pd.DataFrame()
+    
     tickery = list(db.keys()) if filtr == "Vše" else [t for t, k in db.items() if k == filtr]
     res = []
     pb = st.progress(0)
     for idx, t in enumerate(tickery):
         try:
-            s = yf.Ticker(t)
+            s = yf.Ticker(str(t).strip())
             i, f = s.info, s.financials
             cp, tp = i.get("currentPrice", 1), i.get("targetMeanPrice", 1)
             
-            # Výpočty průměrů a trendů
             def g_avg(n): 
                 try: return f.loc[n].mean()
                 except: return 0
@@ -94,9 +106,9 @@ def fetch_all_data(db, filtr):
                 "D/E": (i.get("debtToEquity", 0) or 0) / 100,
                 "Div %": (i.get("dividendYield", 0) or 0) * 100,
                 "Payout %": (i.get("payoutRatio", 0) or 0) * 100,
-                "Potenciál %": ((tp / cp) - 1) * 100
+                "Potenciál %": ((tp / cp) - 1) * 100 if tp else 0
             }
-            # Score ze všech 16
+            
             d["Score"] = (get_b(d["P/E"], p_pe) + get_b(d["P/S"], p_ps) + get_b(d["P/B"], p_pb) + get_b(d["P/FCF"], p_pfcf) +
                           get_b(d["GM TTM %"], p_gm) + get_b(d["GM vs Avg"], p_gma) + get_b(d["NM TTM %"], p_nm) + get_b(d["NM vs Avg"], p_nma) +
                           get_b(d["ROE TTM %"], p_roe) + get_b(d["ROE vs Avg"], p_roea) + get_b(d["Rev Trend %"], p_rev) + get_b(d["EPS Trend %"], p_eps) +
@@ -107,6 +119,9 @@ def fetch_all_data(db, filtr):
     return pd.DataFrame(res)
 
 df = fetch_all_data(moje_databaze, zobrazit_kat)
+
 if not df.empty:
     df = df.sort_values(by="Score", ascending=False)
     st.dataframe(df.style.background_gradient(subset=['Score'], cmap='RdYlGn').format(precision=2), use_container_width=True)
+else:
+    st.info("Tabulka je prázdná. Zkontrolujte Google Sheets nebo zkuste jiný filtr.")
