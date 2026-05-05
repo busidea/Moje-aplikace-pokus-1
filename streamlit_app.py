@@ -2,34 +2,28 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 
-st.set_page_config(page_title="Investiční Stratég V14 - Google Sheets", layout="wide")
+st.set_page_config(page_title="Investiční Stratég V15", layout="wide")
 
 # --- PROPOJENÍ S GOOGLE TABULKOU ---
 ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
 
-@st.cache_data(ttl=600) # Data o seznamu akcií se obnoví každých 10 minut
+@st.cache_data(ttl=600)
 def nacti_seznam_akcii(odkaz):
     try:
-        # Úprava URL pro přímé stažení CSV
         csv_url = odkaz.replace('/edit?usp=sharing', '/export?format=csv')
-        # Odstranění případných parametrů na konci a vynucení exportu
         if '/export' not in csv_url:
             csv_url = odkaz.split('/edit')[0] + '/export?format=csv'
-        
         ex_df = pd.read_csv(csv_url)
-        # Očištění názvů sloupců od mezer
         ex_df.columns = ex_df.columns.str.strip()
-        # Vytvoření slovníku {Ticker: Kategorie}
         return pd.Series(ex_df.Kategorie.values, index=ex_df.Ticker).to_dict()
     except Exception as e:
-        st.error(f"Chyba při načítání Google tabulky. Zkontrolujte názvy sloupců 'Ticker' a 'Kategorie'. Detail: {e}")
+        st.error(f"Chyba při načítání Google tabulky: {e}")
         return {}
 
-# Načtení databáze z vašeho odkazu
 moje_databaze = nacti_seznam_akcii(ODKAZ_NA_TABULKU)
 
-st.title("🏛️ Profesionální Investiční Matrix")
-st.caption(f"Data načtena z Google Sheets. Aktuálně sledujete {len(moje_databaze)} titulů.")
+st.title("🏛️ Investiční Matrix V15")
+st.caption(f"Data z Google Sheets | Sledováno {len(moje_databaze)} titulů")
 
 # --- SIDEBAR: FILTRY A 16 UKAZATELŮ ---
 st.sidebar.header("🔍 Zobrazení")
@@ -46,7 +40,7 @@ def vytvor_p(nazev, zk, def_h, def_b):
             d.append({"h": h, "b": b})
         return d
 
-# Definice 16 ukazatelů (pásma a body)
+# Definice bodování (stejná logika jako dříve)
 p_pe   = vytvor_p("P/E Ratio", "pe", [15, 25, 35, 50, 999], [15, 10, 5, 0, -5])
 p_ps   = vytvor_p("P/S Ratio", "ps", [2, 5, 8, 12, 999], [10, 7, 3, 0, -5])
 p_pb   = vytvor_p("P/B Ratio", "pb", [1, 3, 5, 10, 999], [10, 5, 2, 0, -2])
@@ -73,7 +67,6 @@ def get_b(val, pasma):
 @st.cache_data(ttl=3600)
 def fetch_all_data(db, filtr):
     if not db: return pd.DataFrame()
-    
     tickery = list(db.keys()) if filtr == "Vše" else [t for t, k in db.items() if k == filtr]
     res = []
     pb = st.progress(0)
@@ -81,38 +74,38 @@ def fetch_all_data(db, filtr):
         try:
             s = yf.Ticker(str(t).strip())
             i, f = s.info, s.financials
-            cp, tp = i.get("currentPrice", 1), i.get("targetMeanPrice", 1)
+            cp, tp = i.get("currentPrice", 1), i.get("targetMeanPrice", 0)
             
             def g_avg(n): 
                 try: return f.loc[n].mean()
                 except: return 0
             
-            curr_gm = (i.get("grossMargins", 0) or 0) * 100
-            avg_gm = (g_avg("Gross Profit") / g_avg("Total Revenue") * 100) if g_avg("Total Revenue") else 0
-            curr_nm = (i.get("profitMargins", 0) or 0) * 100
-            avg_nm = (g_avg("Net Income") / g_avg("Total Revenue") * 100) if g_avg("Total Revenue") else 0
-            curr_roe = (i.get("returnOnEquity", 0) or 0) * 100
+            c_gm = (i.get("grossMargins", 0) or 0) * 100
+            a_gm = (g_avg("Gross Profit") / g_avg("Total Revenue") * 100) if g_avg("Total Revenue") else 0
+            c_nm = (i.get("profitMargins", 0) or 0) * 100
+            a_nm = (g_avg("Net Income") / g_avg("Total Revenue") * 100) if g_avg("Total Revenue") else 0
+            c_roe = (i.get("returnOnEquity", 0) or 0) * 100
             
             d = {
                 "Ticker": t, "Kat": db[t], "P/E": i.get("trailingPE", 0) or 0,
                 "P/S": i.get("priceToSalesTrailing12Months", 0) or 0,
                 "P/B": i.get("priceToBook", 0) or 0,
                 "P/FCF": i.get("marketCap", 0) / i.get("freeCashflow", 1) if i.get("freeCashflow", 0) > 0 else 0,
-                "GM TTM %": curr_gm, "GM vs Avg": curr_gm - avg_gm,
-                "NM TTM %": curr_nm, "NM vs Avg": curr_nm - avg_nm,
-                "ROE TTM %": curr_roe, "ROE vs Avg": curr_roe - (curr_roe * 0.9),
-                "Rev Trend %": (i.get("revenueGrowth", 0) or 0) * 100,
-                "EPS Trend %": (i.get("earningsGrowth", 0) or 0) * 100,
-                "D/E": (i.get("debtToEquity", 0) or 0) / 100,
-                "Div %": (i.get("dividendYield", 0) or 0) * 100,
-                "Payout %": (i.get("payoutRatio", 0) or 0) * 100,
-                "Potenciál %": ((tp / cp) - 1) * 100 if tp else 0
+                "Hrubá marže %": c_gm, "GM vs Průměr": c_gm - a_gm,
+                "Čistá marže %": c_nm, "NM vs Průměr": c_nm - a_nm,
+                "ROE %": c_roe, "ROE vs Průměr": c_roe - (c_roe * 0.9),
+                "Růst tržeb (y/y) %": (i.get("revenueGrowth", 0) or 0) * 100,
+                "Růst zisku (y/y) %": (i.get("earningsGrowth", 0) or 0) * 100,
+                "Dluh (D/E)": (i.get("debtToEquity", 0) or 0) / 100,
+                "Div. výnos %": (i.get("dividendYield", 0) or 0) * 100,
+                "Výplatní poměr %": (i.get("payoutRatio", 0) or 0) * 100,
+                "Potenciál %": ((tp / cp) - 1) * 100 if tp > 0 else 0
             }
             
             d["Score"] = (get_b(d["P/E"], p_pe) + get_b(d["P/S"], p_ps) + get_b(d["P/B"], p_pb) + get_b(d["P/FCF"], p_pfcf) +
-                          get_b(d["GM TTM %"], p_gm) + get_b(d["GM vs Avg"], p_gma) + get_b(d["NM TTM %"], p_nm) + get_b(d["NM vs Avg"], p_nma) +
-                          get_b(d["ROE TTM %"], p_roe) + get_b(d["ROE vs Avg"], p_roea) + get_b(d["Rev Trend %"], p_rev) + get_b(d["EPS Trend %"], p_eps) +
-                          get_b(d["D/E"], p_deb) + get_b(d["Div %"], p_div) + get_b(d["Payout %"], p_pay) + get_b(d["Potenciál %"], p_pot))
+                          get_b(d["Hrubá marže %"], p_gm) + get_b(d["GM vs Průměr"], p_gma) + get_b(d["Čistá marže %"], p_nm) + get_b(d["NM vs Průměr"], p_nma) +
+                          get_b(d["ROE %"], p_roe) + get_b(d["ROE vs Průměr"], p_roea) + get_b(d["Růst tržeb (y/y) %"], p_rev) + get_b(d["Růst zisku (y/y) %"], p_eps) +
+                          get_b(d["Dluh (D/E)"], p_deb) + get_b(d["Div. výnos %"], p_div) + get_b(d["Výplatní poměr %"], p_pay) + get_b(d["Potenciál %"], p_pot))
             res.append(d)
         except: continue
         pb.progress((idx + 1) / len(tickery))
@@ -120,8 +113,33 @@ def fetch_all_data(db, filtr):
 
 df = fetch_all_data(moje_databaze, zobrazit_kat)
 
+# --- FORMÁTOVÁNÍ A ZOBRAZENÍ ---
+def color_cells(val, column):
+    # P/E: Zelená pod 15, Červená nad 30
+    if column == "P/E":
+        if val <= 0: return ''
+        if val < 15: return 'background-color: #d4edda; color: #155724'
+        if val > 30: return 'background-color: #f8d7da; color: #721c24'
+    # Marže a ROE: Zelená nad 15, Červená pod 5
+    if column in ["Čistá marže %", "ROE %"]:
+        if val > 15: return 'background-color: #d4edda; color: #155724'
+        if val < 5: return 'background-color: #f8d7da; color: #721c24'
+    # Dluh: Zelená pod 0.5, Červená nad 1.5
+    if column == "Dluh (D/E)":
+        if val < 0.5: return 'background-color: #d4edda; color: #155724'
+        if val > 1.5: return 'background-color: #f8d7da; color: #721c24'
+    # Výplatní poměr: Červená nad 95
+    if column == "Výplatní poměr %":
+        if val > 95: return 'background-color: #f8d7da; color: #721c24'
+    return ''
+
 if not df.empty:
     df = df.sort_values(by="Score", ascending=False)
-    st.dataframe(df.style.background_gradient(subset=['Score'], cmap='RdYlGn').format(precision=2), use_container_width=True)
+    st.dataframe(
+        df.style.background_gradient(subset=['Score'], cmap='RdYlGn')
+        .apply(lambda x: [color_cells(v, x.name) for v in x])
+        .format(precision=2),
+        use_container_width=True
+    )
 else:
-    st.info("Tabulka je prázdná. Zkontrolujte Google Sheets nebo zkuste jiný filtr.")
+    st.info("Žádná data k zobrazení. Zkontrolujte Google Sheets.")
