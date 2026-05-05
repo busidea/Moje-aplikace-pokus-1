@@ -2,52 +2,58 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 
-st.set_page_config(page_title="Můj Investiční Stratég V3", layout="wide")
+# Nastavení stránky
+st.set_page_config(page_title="Investiční Stratég V5", layout="wide")
 
-st.title("🚀 Kompletní Investiční Analýza")
-st.write("Hodnocení akcií na základě vašich 16 parametrů a živých dat.")
+st.title("💎 Investiční Analýza s Matrix Editorem")
+st.write("Upravte body a hranice v levém panelu a sledujte přepočet v reálném čase.")
 
-# --- SIDEBAR: KONFIGURACE MATICE (Řádky 3-7) ---
-st.sidebar.header("⚙️ Nastavení bodování")
+# --- SIDEBAR: NASTAVENÍ MATICE BODŮ ---
+st.sidebar.header("📊 Bodovací Matice")
 
-with st.sidebar.expander("1. Čistá marže (Profit Margin)"):
-    m_high = st.slider("Body: 10 (nad %)", 0, 50, 20, key="m1")
-    m_mid = st.slider("Body: 5 (nad %)", 0, 50, 10, key="m2")
+# Sekce Čistá Marže
+with st.sidebar.expander("1. Čistá Marže (Profit Margin)", expanded=True):
+    m_h_val = st.number_input("Hranice pro max body (%)", value=20.0, key="m_h_v")
+    m_h_pts = st.number_input("Body za max hranici", value=10, key="m_h_p")
+    m_m_val = st.number_input("Hranice pro stř. body (%)", value=10.0, key="m_m_v")
+    m_m_pts = st.number_input("Body za stř. hranici", value=5, key="m_m_p")
 
-with st.sidebar.expander("2. ROE (Return on Equity)"):
-    r_high = st.slider("Body: 10 (nad %)", 0, 50, 15, key="r1")
-    r_mid = st.slider("Body: 5 (nad %)", 0, 50, 8, key="r2")
+# Sekce ROE
+with st.sidebar.expander("2. ROE (Return on Equity)", expanded=True):
+    r_h_val = st.number_input("Hranice pro max body (ROE %)", value=15.0, key="r_h_v")
+    r_h_pts = st.number_input("Body za max hranici (ROE)", value=10, key="r_h_p")
+    r_m_val = st.number_input("Hranice pro stř. body (ROE %)", value=8.0, key="r_m_v")
+    r_m_pts = st.number_input("Body za stř. hranici (ROE)", value=5, key="r_m_p")
 
-with st.sidebar.expander("3. Zadluženost (Debt to Equity)"):
-    d_low = st.slider("Body: 10 (pod ratio)", 0.0, 3.0, 0.5, step=0.1)
-    d_mid = st.slider("Body: 5 (pod ratio)", 0.0, 3.0, 1.5, step=0.1)
+# Sekce Debt to Equity (zde je méně lépe!)
+with st.sidebar.expander("3. Zadluženost (Debt/Equity)", expanded=True):
+    d_l_val = st.number_input("Hranice pro max body (Dluh pod)", value=0.5, key="d_l_v")
+    d_l_pts = st.number_input("Body za nízký dluh", value=10, key="d_l_p")
+    d_m_val = st.number_input("Hranice pro stř. body (Dluh pod)", value=1.5, key="d_m_v")
+    d_m_pts = st.number_input("Body za stř. dluh", value=5, key="d_m_p")
 
 # --- FUNKCE PRO VÝPOČET SCORE ---
-def vypocitej_vysledek(data):
+def vypocitej_score(row):
     score = 0
-    duvod = []
     
-    # Logika pro Marži
-    if data['Marze'] > m_high: 
-        score += 10
-    elif data['Marze'] > m_mid: 
-        score += 5
+    # Bodování Marže
+    if row['Marze'] >= m_h_val: score += m_h_pts
+    elif row['Marze'] >= m_m_val: score += m_m_pts
     
-    # Logika pro ROE
-    if data['ROE'] > r_high: 
-        score += 10
-    elif data['ROE'] > r_mid: 
-        score += 5
-
-    # Logika pro Debt/Equity (tady je to obráceně - méně je lépe)
-    if data['Debt_Equity'] < d_low: 
-        score += 10
-    elif data['Debt_Equity'] < d_mid: 
-        score += 5
+    # Bodování ROE
+    if row['ROE'] >= r_h_val: score += r_h_pts
+    elif row['ROE'] >= r_m_val: score += r_m_pts
+    
+    # Bodování Dluhu (méně je lépe)
+    if row['Debt_Equity'] <= d_l_val: score += d_l_pts
+    elif row['Debt_Equity'] <= d_m_val: score += d_m_pts
         
     return score
 
 # --- STAHOVÁNÍ DAT ---
+# Sem si doplňte své tickery ze sloupce B ve vašem Excelu
+moje_akcie = ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA", "V", "MA", "COST", "KO", "PEP"]
+
 @st.cache_data(ttl=3600)
 def fetch_data(tickers):
     rows = []
@@ -55,33 +61,32 @@ def fetch_data(tickers):
         try:
             s = yf.Ticker(t)
             info = s.info
+            # Převod dat z yfinance na standardní formát
             d = {
                 "Ticker": t,
                 "Název": info.get("longName", t),
                 "Cena": info.get("currentPrice"),
                 "Marze": info.get("profitMargins", 0) * 100,
                 "ROE": info.get("returnOnEquity", 0) * 100,
-                "Debt_Equity": info.get("debtToEquity", 0) / 100 # yfinance vrací v % nebo ratio
+                "Debt_Equity": info.get("debtToEquity", 0) / 100 if info.get("debtToEquity") else 0
             }
-            d["Score"] = vypocitej_vysledek(d)
             rows.append(d)
         except:
             continue
     return pd.DataFrame(rows)
 
-# --- HLAVNÍ SEZNAM ---
-moje_akcie = ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA", "NVDA", "NFLX", "AMD", "PYPL"]
+# Získání dat a výpočet score
 df = fetch_data(moje_akcie)
+df["Score"] = df.apply(vypocitej_score, axis=1)
 
-# Seřazení podle Score (Vaše Tčko)
+# Seřazení
 df = df.sort_values(by="Score", ascending=False)
 
-# Zobrazení v aplikaci
-st.subheader("📊 Žebříček podle vašeho nastavení")
+# --- ZOBRAZENÍ ---
+st.subheader("📊 Výsledky analýzy")
 st.dataframe(
-    df.style.background_gradient(subset=['Score'], cmap='Greens'),
+    df.style.background_gradient(subset=['Score'], cmap='YlGn'), # Žluto-zelená škála
     use_container_width=True
 )
 
-st.divider()
-st.write("Aplikace nyní sleduje reálné parametry. Stačí upravit posuvníky vlevo a sledovat, jak se mění pořadí firem.")
+st.info("Tip: Změňte hodnoty v políčkách vlevo (např. zvyšte body za ROE) a tabulka se okamžitě přerovná.")
