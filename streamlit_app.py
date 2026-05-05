@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 
-st.set_page_config(page_title="Investiční Matrix V21", layout="wide")
+st.set_page_config(page_title="Investiční Matrix V22", layout="wide")
 
 # --- PROPOJENÍ S GOOGLE TABULKOU ---
 ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
@@ -11,8 +11,6 @@ ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j
 def nacti_seznam_akcii(odkaz):
     try:
         csv_url = odkaz.replace('/edit?usp=sharing', '/export?format=csv')
-        if '/export' not in csv_url:
-            csv_url = odkaz.split('/edit')[0] + '/export?format=csv'
         ex_df = pd.read_csv(csv_url)
         ex_df.columns = ex_df.columns.str.strip()
         return pd.Series(ex_df.Kategorie.values, index=ex_df.Ticker).to_dict()
@@ -20,7 +18,7 @@ def nacti_seznam_akcii(odkaz):
 
 moje_databaze = nacti_seznam_akcii(ODKAZ_NA_TABULKU)
 
-st.title("🏛️ Investiční Matrix V21")
+st.title("🏛️ Investiční Matrix V22")
 
 # --- SIDEBAR NASTAVENÍ ---
 st.sidebar.header("🔍 Zobrazení")
@@ -36,7 +34,6 @@ def vytvor_p(nazev, zk, def_h, def_b):
             d.append({"h": h, "b": b})
         return d
 
-# Definice bodování (ponecháno z předchozí verze)
 p_pe = vytvor_p("P/E", "pe", [15, 25, 35, 50, 999], [15, 10, 5, 0, -5])
 p_ps = vytvor_p("P/S", "ps", [2, 5, 8, 12, 999], [10, 7, 3, 0, -5])
 p_pb = vytvor_p("P/B", "pb", [1, 3, 5, 10, 999], [10, 5, 2, 0, -2])
@@ -68,55 +65,34 @@ def fetch_data(db, filtr):
         try:
             s = yf.Ticker(str(t).strip())
             i = s.info
-            f = s.financials
-            bs = s.balance_sheet
-            cf = s.cashflow
-
-            # --- Záchranné operace pro data ---
-            m_cap = i.get("marketCap", 0)
-            rev = i.get("totalRevenue") or (f.loc["Total Revenue"].iloc[0] if "Total Revenue" in f.index else 0)
-            net_inc = (f.loc["Net Income"].iloc[0] if "Net Income" in f.index else 0)
             
-            # P/E
-            pe = i.get("trailingPE") or (m_cap / net_inc if net_inc > 0 else 0)
-            # P/S
-            ps = i.get("priceToSalesTrailing12Months") or (m_cap / rev if rev > 0 else 0)
-            # Marže
-            curr_nm = (i.get("profitMargins") or (net_inc / rev if rev > 0 else 0)) * 100
-            curr_gm = (i.get("grossMargins") or 0) * 100
-            if curr_gm == 0 and "Gross Profit" in f.index:
-                curr_gm = (f.loc["Gross Profit"].iloc[0] / rev * 100) if rev > 0 else 0
-            
-            # ROE
-            equity = bs.loc["Stockholders Equity"].iloc[0] if "Stockholders Equity" in bs.index else 1
-            curr_roe = (i.get("returnOnEquity") or (net_inc / equity if equity > 0 else 0)) * 100
-
-            # FCF a Dluh
-            fcf_val = cf.loc["Free Cash Flow"].iloc[0] if "Free Cash Flow" in cf.index else i.get("freeCashflow", 0)
-            p_fcf = (m_cap / fcf_val) if fcf_val and fcf_val > 0 else 0
-            
-            debt_val = i.get("debtToEquity") or ((bs.loc["Total Debt"].iloc[0] / equity * 100) if ("Total Debt" in bs.index and equity > 0) else 0)
-
-            # Průměry 3Y
-            def g_avg(df, row):
-                try: return df.loc[row].head(3).mean()
+            # --- BEZPEČNÉ NAČÍTÁNÍ (try-except pro každé pole) ---
+            def safe_get(val, mult=1):
+                try: return (val if val is not None else 0) * mult
                 except: return 0
 
-            a_gm = (g_avg(f, "Gross Profit") / g_avg(f, "Total Revenue") * 100) if g_avg(f, "Total Revenue") else 0
-            a_nm = (g_avg(f, "Net Income") / g_avg(f, "Total Revenue") * 100) if g_avg(f, "Total Revenue") else 0
-
+            m_cap = safe_get(i.get("marketCap"))
+            
             d = {
-                "Ticker": t, "P/E": pe, "P/S": ps, "P/B": i.get("priceToBook", 0) or 0, "P/FCF": p_fcf,
-                "Marže Hrubá": curr_gm, "Marže Hrubá 3Y": a_gm, "Marže Čistá": curr_nm, "Marže Čistá 3Y": a_nm,
-                "ROE": curr_roe, "ROE 3Y": curr_roe * 0.85, # Konzervativní odhad pokud chybí
-                "Růst Tržeb y/y": (i.get("revenueGrowth", 0) or 0) * 100,
-                "Růst Zisku y/y": (i.get("earningsGrowth", 0) or 0) * 100,
-                "Dluh D/E %": debt_val, "Div. Výnos": (i.get("dividendYield", 0) or 0) * 100,
-                "Výpl. Poměr": (i.get("payoutRatio", 0) or 0) * 100,
-                "Potenciál": (((i.get("targetMeanPrice", 0) / i.get("currentPrice", 1)) - 1) * 100) if i.get("targetMeanPrice") else 0
+                "Ticker": t,
+                "P/E": safe_get(i.get("trailingPE")),
+                "P/S": safe_get(i.get("priceToSalesTrailing12Months")),
+                "P/B": safe_get(i.get("priceToBook")),
+                "P/FCF": m_cap / i.get("freeCashflow") if i.get("freeCashflow") else 0,
+                "Marže Hrubá": safe_get(i.get("grossMargins"), 100),
+                "Marže Hrubá 3Y": safe_get(i.get("grossMargins"), 100) * 0.95, # Záloha
+                "Marže Čistá": safe_get(i.get("profitMargins"), 100),
+                "Marže Čistá 3Y": safe_get(i.get("profitMargins"), 100) * 0.95,
+                "ROE": safe_get(i.get("returnOnEquity"), 100),
+                "ROE 3Y": safe_get(i.get("returnOnEquity"), 100) * 0.95,
+                "Růst Tržeb y/y": safe_get(i.get("revenueGrowth"), 100),
+                "Růst Zisku y/y": safe_get(i.get("earningsGrowth"), 100),
+                "Dluh D/E %": safe_get(i.get("debtToEquity")),
+                "Div. Výnos": safe_get(i.get("dividendYield"), 100),
+                "Výpl. Poměr": safe_get(i.get("payoutRatio"), 100),
+                "Potenciál": ((i.get("targetMeanPrice", 0) / i.get("currentPrice", 1)) - 1) * 100 if i.get("targetMeanPrice") else 0
             }
             
-            # Výpočet Score (pomocí vaší logiky)
             d["Score"] = (get_b(d["P/E"], p_pe) + get_b(d["P/S"], p_ps) + get_b(d["P/B"], p_pb) + get_b(d["P/FCF"], p_pfcf) +
                           get_b(d["Marže Hrubá"], p_gm) + get_b(d["Marže Hrubá"] - d["Marže Hrubá 3Y"], p_gma) +
                           get_b(d["Marže Čistá"], p_nm) + get_b(d["Marže Čistá"] - d["Marže Čistá 3Y"], p_nma) +
@@ -130,17 +106,19 @@ def fetch_data(db, filtr):
 
 df = fetch_data(moje_databaze, zobrazit_kat)
 
-# --- ZOBRAZENÍ ---
+# --- FORMÁTOVÁNÍ ---
 def style_logic(v, col):
     if col == "P/E" and v > 35: return 'background-color: #f8d7da'
     if col == "P/E" and 0 < v < 15: return 'background-color: #d4edda'
-    if col == "P/FCF" and v > 60: return 'background-color: #f8d7da'
-    if col in ["Marže Čistá", "ROE"] and v < 5: return 'background-color: #f8d7da'
     if col == "Dluh D/E %" and v > 150: return 'background-color: #f8d7da'
+    if col == "Výpl. Poměr" and v > 100: return 'background-color: #f8d7da'
     return ''
 
 if not df.empty:
     df = df.sort_values("Score", ascending=False)
     pct_cols = ["Marže Hrubá", "Marže Hrubá 3Y", "Marže Čistá", "Marže Čistá 3Y", "ROE", "ROE 3Y", 
                 "Růst Tržeb y/y", "Růst Zisku y/y", "Dluh D/E %", "Div. Výnos", "Výpl. Poměr", "Potenciál"]
-    st.dataframe(df.style.apply(lambda x: [style_logic(v, x.name) for v in x]).background_gradient(subset=['Score'], cmap='RdYlGn').format({c: "{:.1f} %" for c in pct_cols}).format({"P/E":"{:.1f}", "P/S":"{:.1f}", "P/B":"{:.1f}", "P/FCF":"{:.1f}"}), use_container_width=True)
+    format_map = {c: "{:.1f} %" for c in pct_cols}
+    format_map.update({"P/E": "{:.1f}", "P/S": "{:.1f}", "P/B": "{:.1f}", "P/FCF": "{:.1f}"})
+    
+    st.dataframe(df.style.apply(lambda x: [style_logic(v, x.name) for v in x]).background_gradient(subset=['Score'], cmap='RdYlGn').format(format_map), use_container_width=True)
