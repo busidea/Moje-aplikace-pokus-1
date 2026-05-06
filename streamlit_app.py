@@ -3,9 +3,8 @@ import pandas as pd
 import yfinance as yf
 import time
 
-st.set_page_config(page_title="Investiční Matrix V27", layout="wide")
+st.set_page_config(page_title="Investiční Matrix V28", layout="wide")
 
-# --- KONFIGURACE ---
 ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
 
 @st.cache_data(ttl=600)
@@ -15,17 +14,16 @@ def nacti_seznam_akcii(odkaz):
         ex_df = pd.read_csv(csv_url)
         ex_df.columns = ex_df.columns.str.strip()
         return pd.Series(ex_df.Kategorie.values, index=ex_df.Ticker).to_dict()
-    except:
-        return {}
+    except: return {}
 
 moje_databaze = nacti_seznam_akcii(ODKAZ_NA_TABULKU)
 
-st.title("🏛️ Investiční Matrix V27 - Obnova stability")
+st.title("🏛️ Investiční Matrix V28 - Hard-Fix")
 
-# --- SIDEBAR NASTAVENÍ ---
 st.sidebar.header("🔍 Zobrazení")
 zobrazit_kat = st.sidebar.radio("Skupina:", ["Vše", "Portfolio", "Sledované"])
 
+# Bodování (ponecháno pro výpočet Score)
 def vytvor_p(nazev, zk, def_h, def_b):
     with st.sidebar.expander(f"📊 {nazev}", expanded=False):
         d = []
@@ -36,7 +34,6 @@ def vytvor_p(nazev, zk, def_h, def_b):
             d.append({"h": h, "b": b})
         return d
 
-# Bodovací systémy
 p_pe = vytvor_p("P/E", "pe", [15, 25, 35, 50, 999], [15, 10, 5, 0, -5])
 p_ps = vytvor_p("P/S", "ps", [2, 5, 8, 12, 999], [10, 7, 3, 0, -5])
 p_pfcf = vytvor_p("P/FCF", "pfcf", [15, 25, 40, 60, 999], [15, 10, 5, 0, -5])
@@ -61,74 +58,78 @@ def fetch_data(db, filtr):
         try:
             ticker_str = str(t).strip().upper()
             s = yf.Ticker(ticker_str)
-            i = s.info
             
-            # Bezpečné získání hodnoty (ošetření None)
-            def sv(key, mult=1):
-                v = i.get(key)
-                return (v if v is not None else 0) * mult
+            # AGRESIVNÍ STAŽENÍ INFO
+            i = s.info
+            if not i or len(i) < 5:
+                # Pokud standardní info selže, zkusíme fast_info (mnohem stabilnější v cloudu)
+                i = s.fast_info
+            
+            # Pomocná funkce pro bezpečný sběr (vždy vrátí číslo)
+            def g(k, mult=1):
+                try:
+                    val = i.get(k, 0)
+                    if val is None: return 0
+                    return float(val) * mult
+                except: return 0
 
-            # Výpočty
-            m_cap = sv("marketCap")
-            fcf = sv("freeCashflow")
-            pe = sv("trailingPE")
-            # Pokud chybí P/E, zkusíme forward
-            if pe == 0: pe = sv("forwardPE")
+            # Manuální výpočet P/E pokud chybí
+            pe_val = g("trailingPE") or g("forwardPE")
+            if pe_val == 0 and g("lastPrice") > 0 and g("epsTrailing12Months") > 0:
+                pe_val = g("lastPrice") / g("epsTrailing12Months")
 
             d = {
                 "Ticker": ticker_str,
-                "P/E": pe,
-                "P/S": sv("priceToSalesTrailing12Months"),
-                "P/FCF": (m_cap / fcf) if fcf != 0 else 0,
-                "Marže Čistá": sv("profitMargins", 100),
-                "ROE": sv("returnOnEquity", 100),
-                "Dluh D/E %": sv("debtToEquity"),
-                "Div. Výnos": sv("dividendYield", 100),
-                "Výpl. Poměr": sv("payoutRatio", 100),
-                "Potenciál": ((sv("targetMeanPrice") / sv("currentPrice", 1)) - 1) * 100 if sv("targetMeanPrice") > 0 else 0
+                "P/E": pe_val,
+                "P/S": g("priceToSalesTrailing12Months"),
+                "P/FCF": g("marketCap") / g("freeCashflow") if g("freeCashflow") > 0 else 0,
+                "Marže Čistá": g("profitMargins", 100),
+                "ROE": g("returnOnEquity", 100),
+                "Dluh D/E %": g("debtToEquity"),
+                "Div. Výnos": g("dividendYield", 100) if g("dividendYield") < 1 else g("dividendYield"),
+                "Výpl. Poměr": g("payoutRatio", 100),
+                "Potenciál": ((g("targetMeanPrice") / g("currentPrice", 1)) - 1) * 100 if g("targetMeanPrice") > 0 else 0
             }
             
-            # Výpočet Score
+            # FIX: Pokud jsou marže None/0, zkusíme je vytáhnout z fast_info
+            if d["Marže Čistá"] == 0 and "net_income" in i:
+                d["Marže Čistá"] = (i["net_income"] / i["total_revenue"]) * 100 if i.get("total_revenue", 0) > 0 else 0
+
             d["Score"] = (get_b(d["P/E"], p_pe) + get_b(d["P/S"], p_ps) + get_b(d["P/FCF"], p_pfcf) +
                           get_b(d["Marže Čistá"], p_nm) + get_b(d["ROE"], p_roe) + 
                           get_b(d["Dluh D/E %"], p_deb) + get_b(d["Div. Výnos"], p_div) + get_b(d["Výpl. Poměr"], p_pay))
             
             res.append(d)
-            # Drobná pauza pro stabilizaci API u evropských titulů
-            if ".AS" in ticker_str or ".DE" in ticker_str:
-                time.sleep(0.1)
-                
-        except Exception as e:
-            continue
+            time.sleep(0.05) # Prevence blokace
+        except: continue
         pb.progress((idx + 1) / len(tickery))
     
     return pd.DataFrame(res)
 
 df = fetch_data(moje_databaze, zobrazit_kat)
 
-# --- ZOBRAZENÍ A FORMÁTOVÁNÍ ---
-def color_logic(val, col):
-    if col == "P/E" and val > 35: return 'background-color: #f8d7da; color: #721c24'
-    if col == "P/FCF" and val > 60: return 'background-color: #f8d7da; color: #721c24'
-    if col == "Dluh D/E %" and val > 150: return 'background-color: #f8d7da; color: #721c24'
-    if col == "Výpl. Poměr" and val > 100: return 'background-color: #f8d7da; color: #721c24'
+# --- FORMÁTOVÁNÍ ---
+def style_val(v, col):
+    if col == "P/E" and v > 35: return 'background-color: #f8d7da'
+    if col == "Dluh D/E %" and v > 150: return 'background-color: #f8d7da'
     return ''
 
 if not df.empty:
     df = df.sort_values("Score", ascending=False)
     
-    # Sloupce pro formátování
+    # Definice VŠECH sloupců (aby žádný nechyběl)
+    columns_to_show = ["Ticker", "Score", "P/E", "P/S", "P/FCF", "Marže Čistá", "ROE", "Dluh D/E %", "Div. Výnos", "Výpl. Poměr", "Potenciál"]
+    df = df.reindex(columns=columns_to_show).fillna(0)
+
     pct_cols = ["Marže Čistá", "ROE", "Dluh D/E %", "Div. Výnos", "Výpl. Poměr", "Potenciál"]
-    num_cols = ["P/E", "P/S", "P/FCF"]
-    
     fmt = {c: "{:.1f} %" for c in pct_cols}
-    fmt.update({c: "{:.1f}" for c in num_cols})
+    fmt.update({"P/E": "{:.1f}", "P/S": "{:.1f}", "P/FCF": "{:.1f}", "Score": "{:.0f}"})
 
     st.dataframe(
-        df.style.apply(lambda x: [color_logic(v, x.name) for v in x])
+        df.style.apply(lambda x: [style_val(v, x.name) for v in x])
         .background_gradient(subset=['Score'], cmap='RdYlGn')
         .format(fmt),
         use_container_width=True
     )
 else:
-    st.warning("Tabulka je prázdná. Zkontrolujte spojení s Google Sheets.")
+    st.error("Chyba spojení. Yahoo Finance momentálně blokuje požadavky.")
