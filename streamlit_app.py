@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 
-st.set_page_config(page_title="Investiční Matrix V39", layout="wide")
+st.set_page_config(page_title="Investiční Matrix V39.1", layout="wide")
 
 ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
 
@@ -17,7 +17,7 @@ def nacti_seznam_akcii(odkaz):
 
 moje_databaze = nacti_seznam_akcii(ODKAZ_NA_TABULKU)
 
-st.title("🏛️ Investiční Matrix V39 - Auditní mód")
+st.title("🏛️ Investiční Matrix V39.1 - Auditní mód")
 
 # --- SIDEBAR ---
 st.sidebar.header("⚖️ Globální Váhy")
@@ -27,7 +27,7 @@ w_growth = st.sidebar.slider("Váha: Růst", 0.5, 3.0, 1.0, 0.1)
 w_risk = st.sidebar.slider("Váha: Riziko", 0.5, 3.0, 1.5, 0.1)
 
 st.sidebar.markdown("---")
-show_audit = st.sidebar.checkbox("Zobrazit bodový rozklad (audit)", value=False)
+show_audit = st.sidebar.checkbox("Zobrazit bodový rozklad (audit)", value=True)
 show_hist = st.sidebar.checkbox("Zobrazit 3Y průměry", value=True)
 show_market = st.sidebar.checkbox("Zobrazit denní data", value=True)
 
@@ -41,7 +41,7 @@ def vytvor_p(nazev, zk, def_h, def_b):
             d.append({"h": h, "b": b})
         return d
 
-# Definice pásem (16 prvků)
+# Definice pásem (všech 16)
 p_pe = vytvor_p("P/E", "pe", [15, 25, 35, 50, 999], [15, 10, 5, 0, -5])
 p_ps = vytvor_p("P/S", "ps", [2, 5, 8, 12, 999], [10, 7, 3, 0, -5])
 p_pb = vytvor_p("P/B", "pb", [1, 3, 5, 10, 999], [10, 5, 2, 0, -2])
@@ -73,6 +73,7 @@ def fetch_data(db, filtr):
         try:
             ticker_obj = yf.Ticker(str(t).strip())
             i = ticker_obj.info
+            if not i or len(i) < 5: i = ticker_obj.fast_info
             def g(k, m=1): return float(i.get(k, 0)) * m if i.get(k) is not None else 0
             
             d = {"Ticker": t, "P/E": g("trailingPE") if g("trailingPE")!=0 else g("forwardPE"), "P/S": g("priceToSalesTrailing12Months"), 
@@ -85,19 +86,18 @@ def fetch_data(db, filtr):
                  "Cena": g("currentPrice"), "Změna %": ((g("currentPrice")/g("previousClose"))-1)*100 if g("previousClose")>0 else 0,
                  "Potenciál": ((g("targetMeanPrice")/g("currentPrice",1))-1)*100 if g("targetMeanPrice")>0 else 0}
             
-            # Výpočet bodů
+            # Bodování s vahami
             pts = {
-                "pe": get_b(d["P/E"], p_pe)*w_val, "ps": get_b(d["P/S"], p_ps)*w_val, "pb": get_b(d["P/B"], p_pb)*w_val, "fcf": get_b(d["P/FCF"], p_pfcf)*w_val,
-                "gm": get_b(d["Hrubá marže"], p_gm)*w_prof, "gm3": get_b(d["Hrubá marže 3Y"], p_gm3y)*w_prof,
-                "nm": get_b(d["Čistá marže"], p_nm)*w_prof, "nm3": get_b(d["Čistá marže 3Y"], p_nm3y)*w_prof,
-                "roe": get_b(d["ROE"], p_roe)*w_prof, "roe3": get_b(d["ROE 3Y"], p_roe3y)*w_prof,
-                "rev": get_b(d["Růst tržeb"], p_rev)*w_growth, "eps": get_b(get_b(d["Růst zisku"], p_eps), p_eps)*w_growth,
-                "div": get_b(d["Div. výnos"], p_div)*w_growth, "pot": get_b(d["Potenciál"], p_pot)*w_growth,
-                "deb": get_b(d["Dluh D/E"], p_deb)*w_risk, "pay": get_b(d["Výpl. poměr"], p_pay)*w_risk
+                "pe_p": get_b(d["P/E"], p_pe)*w_val, "ps_p": get_b(d["P/S"], p_ps)*w_val, "pb_p": get_b(d["P/B"], p_pb)*w_val, "fcf_p": get_b(d["P/FCF"], p_pfcf)*w_val,
+                "gm_p": get_b(d["Hrubá marže"], p_gm)*w_prof, "gm3_p": get_b(d["Hrubá marže 3Y"], p_gm3y)*w_prof,
+                "nm_p": get_b(d["Čistá marže"], p_nm)*w_prof, "nm3_p": get_b(d["Čistá marže 3Y"], p_nm3y)*w_prof,
+                "roe_p": get_b(d["ROE"], p_roe)*w_prof, "roe3_p": get_b(d["ROE 3Y"], p_roe3y)*w_prof,
+                "rev_p": get_b(d["Růst tržeb"], p_rev)*w_growth, "eps_p": get_b(d["Růst zisku"], p_eps)*w_growth,
+                "div_p": get_b(d["Div. výnos"], p_div)*w_growth, "pot_p": get_b(d["Potenciál"], p_pot)*w_growth,
+                "deb_p": get_b(d["Dluh D/E"], p_deb)*w_risk, "pay_p": get_b(d["Výpl. poměr"], p_pay)*w_risk
             }
             d["Score"] = sum(pts.values())
-            if show_audit:
-                for k, v in pts.items(): d[f"{k}_pts"] = v
+            if show_audit: d.update(pts)
             res.append(d)
         except: continue
         pb.progress((idx+1)/len(tickery))
@@ -106,21 +106,30 @@ def fetch_data(db, filtr):
 df = fetch_data(moje_databaze, "Vše")
 
 if not df.empty:
-    # --- DYNAMICKÉ SESTAVENÍ SLOUPCŮ ---
+    def add_a(main_col, pt_col):
+        return [main_col, pt_col] if show_audit else [main_col]
+
     order = ["Ticker"]
     if show_market: order += ["Cena", "Změna %"]
+    order += add_a("P/E", "pe_p") + add_a("P/FCF", "fcf_p")
     
-    def add_a(label, col, pt_col):
-        res = [col]
-        if show_audit: res.append(pt_col)
-        return res
-
-    order += add_a("P/E", "P/E", "pe_pts") + add_a("P/FCF", "P/FCF", "fcf_pts")
     if show_hist:
-        order += add_a("GM", "Hrubá marže", "gm_pts") + add_a("GM3Y", "Hrubá marže 3Y", "gm3_pts")
-        order += add_a("NM", "Čistá marže", "Čistá marže 3Y", "nm_pts") # nm3_pts...
+        order += add_a("Hrubá marže", "gm_p") + add_a("Hrubá marže 3Y", "gm3_p")
+        order += add_a("Čistá marže", "nm_p") + add_a("Čistá marže 3Y", "nm3_p")
+        order += add_a("ROE", "roe_p") + add_a("ROE 3Y", "roe3_p")
+    else:
+        order += add_a("Hrubá marže", "gm_p") + add_a("Čistá marže", "nm_p") + add_a("ROE", "roe_p")
+
+    order += add_a("Dluh D/E", "deb_p") + add_a("Div. výnos", "div_p") + add_a("Potenciál", "pot_p") + ["Score"]
     
-    # Pro zjednodušení v kódu pro uživatele jsem vybral klíčové sloupce pro zobrazení
-    df = df.reindex(columns=order + ["Potenciál", "Score"]).fillna(0).sort_values("Score", ascending=False)
+    df = df.reindex(columns=order).fillna(0).sort_values("Score", ascending=False)
     
-    st.dataframe(df.style.background_gradient(subset=['Score'], cmap='RdYlGn').format(precision=1), use_container_width=True, height=800, hide_index=True)
+    # Styling barev pro body
+    def style_pts(v):
+        return 'color: #888888; font-style: italic;' if show_audit else ''
+
+    st.dataframe(
+        df.style.background_gradient(subset=['Score'], cmap='RdYlGn')
+        .format(precision=1),
+        use_container_width=True, height=800, hide_index=True
+    )
