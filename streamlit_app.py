@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 
-st.set_page_config(page_title="Investiční Matrix V41", layout="wide")
+st.set_page_config(page_title="Investiční Matrix V41.1", layout="wide")
 
 ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
 
@@ -17,7 +17,7 @@ def nacti_seznam_akcii(odkaz):
 
 moje_databaze = nacti_seznam_akcii(ODKAZ_NA_TABULKU)
 
-st.title("🏛️ Investiční Matrix V41 - Full Audit")
+st.title("🏛️ Investiční Matrix V41.1")
 
 # --- SIDEBAR ---
 st.sidebar.header("⚖️ Globální Váhy")
@@ -86,7 +86,6 @@ def fetch_data(db):
                 "Potenciál": ((g("targetMeanPrice")/g("currentPrice", 1))-1)*100 if g("targetMeanPrice")>0 else 0
             }
             
-            # Výpočet vážených bodů
             pts = {
                 "P/E": get_b(d["P/E"], p_pe)*w_val, "P/S": get_b(d["P/S"], p_ps)*w_val, "P/B": get_b(d["P/B"], p_pb)*w_val, "P/FCF": get_b(d["P/FCF"], p_pfcf)*w_val,
                 "GM": get_b(d["GM"], p_gm)*w_prof, "GM3Y": get_b(d["GM3Y"], p_gm3y)*w_prof, "NM": get_b(d["NM"], p_nm)*w_prof, "NM3Y": get_b(d["NM3Y"], p_nm3y)*w_prof,
@@ -96,14 +95,11 @@ def fetch_data(db):
                 "Dluh D/E": get_b(d["Dluh D/E"], p_deb)*w_risk, "Výpl. poměr": get_b(d["Výpl. poměr"], p_pay)*w_risk
             }
             total_score = sum(pts.values())
-
-            # Přidání do seznamu (Vždy s unikátním ID pro řazení)
             res.append({**d, "Score": total_score, "RowType": "Val", "SortKey": total_score})
             if show_audit:
                 audit_row = {k: pts.get(k, 0) for k in d.keys() if k in pts}
-                audit_row.update({"Ticker": "└─ pts", "Score": total_score, "RowType": "Pts", "SortKey": total_score - 0.001})
+                audit_row.update({"Ticker": "└─ pts", "Score": total_score, "RowType": "Pts", "SortKey": total_score - 0.0001})
                 res.append(audit_row)
-
         except: continue
         pb.progress((idx+1)/len(tickery))
     return pd.DataFrame(res)
@@ -111,24 +107,26 @@ def fetch_data(db):
 df_raw = fetch_data(moje_databaze)
 
 if not df_raw.empty:
-    # Seřazení podle skóre tak, aby auditní řádek zůstal pod hodnotou
-    df_raw = df_raw.sort_values("SortKey", ascending=False).drop(columns=["SortKey"])
+    df_raw = df_raw.sort_values("SortKey", ascending=False)
     
-    # Definice sloupců
-    cols = ["Ticker", "Cena", "P/E", "P/FCF", "GM", "GM3Y", "NM", "NM3Y", "ROE", "ROE3Y", "Růst tržeb", "Dluh D/E", "Div. výnos", "Potenciál", "Score"]
+    # Sloupce pro zobrazení
+    disp_cols = ["Ticker", "Cena", "P/E", "P/FCF", "GM", "GM3Y", "NM", "NM3Y", "ROE", "ROE3Y", "Růst tržeb", "Dluh D/E", "Div. výnos", "Potenciál", "Score"]
     if not show_hist:
-        cols = [c for c in cols if "3Y" not in c]
+        disp_cols = [c for c in disp_cols if "3Y" not in c]
     
-    df_final = df_raw.reindex(columns=cols + ["RowType"])
-
+    # Nejdříve připravíme tabulku VČETNĚ RowType pro barvení
+    # Ale uživateli ukážeme jen vybrané sloupce pomocí column_order
     def style_rows(row):
         if row["RowType"] == "Pts":
-            return ['background-color: #f8f9fa; color: #adb5bd; font-style: italic'] * len(row)
+            return ['background-color: #f1f3f5; color: #868e96; font-style: italic'] * len(row)
         return [''] * len(row)
 
     st.dataframe(
-        df_final.drop(columns=["RowType"]).style.apply(style_rows, axis=1)
-        .background_gradient(subset=['Score'], cmap='RdYlGn', vmin=df_final["Score"].min(), vmax=df_final["Score"].max())
+        df_raw.style.apply(style_rows, axis=1)
+        .background_gradient(subset=['Score'], cmap='RdYlGn')
         .format(precision=1),
-        use_container_width=True, height=900, hide_index=True
+        use_container_width=True, 
+        height=900, 
+        hide_index=True,
+        column_order=disp_cols # TADY se definuje, co uživatel uvidí (RowType zůstane skrytý)
     )
