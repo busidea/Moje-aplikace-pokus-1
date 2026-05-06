@@ -3,7 +3,7 @@ import pandas as pd
 import yfinance as yf
 import time
 
-st.set_page_config(page_title="Investiční Matrix V30", layout="wide")
+st.set_page_config(page_title="Investiční Matrix V31", layout="wide")
 
 ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
 
@@ -18,9 +18,9 @@ def nacti_seznam_akcii(odkaz):
 
 moje_databaze = nacti_seznam_akcii(ODKAZ_NA_TABULKU)
 
-st.title("🏛️ Investiční Matrix V30")
+st.title("🏛️ Investiční Matrix V31")
 
-# --- SIDEBAR BODŮ ---
+# --- SIDEBAR ---
 st.sidebar.header("🔍 Nastavení")
 zobrazit_kat = st.sidebar.radio("Skupina:", ["Vše", "Portfolio", "Sledované"])
 
@@ -59,10 +59,6 @@ def fetch_data(db, filtr):
             ticker_obj = yf.Ticker(str(t).strip())
             i = ticker_obj.info
             
-            # Pokud info selže, zkusíme aspoň základní cenu pro výpočty
-            hist = ticker_obj.history(period="1d")
-            cena = hist['Close'].iloc[-1] if not hist.empty else i.get('currentPrice', 0)
-
             def g(key, mult=1):
                 val = i.get(key)
                 if val is None or val == "": return 0
@@ -79,7 +75,7 @@ def fetch_data(db, filtr):
                 "Dluh D/E %": g("debtToEquity"),
                 "Div. Výnos": g("dividendYield", 100),
                 "Výpl. Poměr": g("payoutRatio", 100),
-                "Potenciál": ((g("targetMeanPrice") / cena) - 1) * 100 if g("targetMeanPrice") > 0 and cena > 0 else 0
+                "Potenciál": ((g("targetMeanPrice") / g("currentPrice", 1)) - 1) * 100 if g("targetMeanPrice") > 0 else 0
             }
 
             d["Score"] = (get_b(d["P/E"], p_pe) + get_b(d["P/S"], p_ps) + get_b(d["P/FCF"], p_pfcf) +
@@ -92,21 +88,31 @@ def fetch_data(db, filtr):
 
 df = fetch_data(moje_databaze, zobrazit_kat)
 
-# --- FORMÁTOVÁNÍ ---
+# --- OPRAVENÉ FORMÁTOVÁNÍ (Bez applymap) ---
 if not df.empty:
     df = df.sort_values("Score", ascending=False)
-    
-    # Definice sloupců natvrdo (zajišťuje, že jich bude vždy 11)
     final_cols = ["Ticker", "Score", "P/E", "P/S", "P/B", "P/FCF", "Marže Čistá", "ROE", "Dluh D/E %", "Div. Výnos", "Výpl. Poměr", "Potenciál"]
     df = df.reindex(columns=final_cols).fillna(0)
+
+    # Funkce pro barvení celých sloupců na základě podmínek
+    def color_extreme_values(s):
+        if s.name == "P/E":
+            return ['background-color: #f8d7da' if v > 35 else '' for v in s]
+        if s.name == "P/FCF":
+            return ['background-color: #f8d7da' if v > 60 else '' for v in s]
+        if s.name == "Dluh D/E %":
+            return ['background-color: #f8d7da' if v > 150 else '' for v in s]
+        if s.name == "Výpl. Poměr":
+            return ['background-color: #f8d7da' if v > 100 else '' for v in s]
+        return ['' for _ in s]
 
     pct_cols = ["Marže Čistá", "ROE", "Dluh D/E %", "Div. Výnos", "Výpl. Poměr", "Potenciál"]
     fmt = {c: "{:.1f} %" for c in pct_cols}
     fmt.update({"P/E": "{:.1f}", "P/S": "{:.1f}", "P/B": "{:.1f}", "P/FCF": "{:.1f}", "Score": "{:.0f}"})
 
     st.dataframe(
-        df.style.background_gradient(subset=['Score'], cmap='RdYlGn')
-        .applymap(lambda v: 'background-color: #f8d7da' if isinstance(v, float) and v > 150 and "Dluh" in str(v) else '')
+        df.style.apply(color_extreme_values, axis=0)
+        .background_gradient(subset=['Score'], cmap='RdYlGn')
         .format(fmt),
         use_container_width=True
     )
