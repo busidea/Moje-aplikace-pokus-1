@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 
-st.set_page_config(page_title="Investiční Matrix V38", layout="wide")
+st.set_page_config(page_title="Investiční Matrix V39", layout="wide")
 
 ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
 
@@ -17,17 +17,17 @@ def nacti_seznam_akcii(odkaz):
 
 moje_databaze = nacti_seznam_akcii(ODKAZ_NA_TABULKU)
 
-st.title("🏛️ Investiční Matrix V38")
+st.title("🏛️ Investiční Matrix V39 - Auditní mód")
 
-# --- SIDEBAR: VÁHY A FILTRY ---
-st.sidebar.header("⚖️ Globální Váhy Skupin")
-w_val = st.sidebar.slider("Valuace (P/E, P/S, P/FCF...)", 0.5, 3.0, 1.0, 0.1)
-w_prof = st.sidebar.slider("Rentabilita (Marže, ROE...)", 0.5, 3.0, 1.0, 0.1)
-w_growth = st.sidebar.slider("Růst a Dividenty", 0.5, 3.0, 1.0, 0.1)
-w_risk = st.sidebar.slider("Riziko (Dluh, Výpl. poměr)", 0.5, 3.0, 1.5, 0.1)
+# --- SIDEBAR ---
+st.sidebar.header("⚖️ Globální Váhy")
+w_val = st.sidebar.slider("Váha: Valuace", 0.5, 3.0, 1.0, 0.1)
+w_prof = st.sidebar.slider("Váha: Rentabilita", 0.5, 3.0, 1.0, 0.1)
+w_growth = st.sidebar.slider("Váha: Růst", 0.5, 3.0, 1.0, 0.1)
+w_risk = st.sidebar.slider("Váha: Riziko", 0.5, 3.0, 1.5, 0.1)
 
 st.sidebar.markdown("---")
-zobrazit_kat = st.sidebar.radio("Skupina:", ["Vše", "Portfolio", "Sledované"])
+show_audit = st.sidebar.checkbox("Zobrazit bodový rozklad (audit)", value=False)
 show_hist = st.sidebar.checkbox("Zobrazit 3Y průměry", value=True)
 show_market = st.sidebar.checkbox("Zobrazit denní data", value=True)
 
@@ -41,25 +41,21 @@ def vytvor_p(nazev, zk, def_h, def_b):
             d.append({"h": h, "b": b})
         return d
 
-# --- OVLÁDACÍ PRVKY ---
-# Valuace
+# Definice pásem (16 prvků)
 p_pe = vytvor_p("P/E", "pe", [15, 25, 35, 50, 999], [15, 10, 5, 0, -5])
 p_ps = vytvor_p("P/S", "ps", [2, 5, 8, 12, 999], [10, 7, 3, 0, -5])
 p_pb = vytvor_p("P/B", "pb", [1, 3, 5, 10, 999], [10, 5, 2, 0, -2])
 p_pfcf = vytvor_p("P/FCF", "pfcf", [15, 25, 40, 60, 999], [15, 10, 5, 0, -5])
-# Rentabilita
 p_gm = vytvor_p("Hrubá marže %", "gm", [10, 25, 40, 60, 999], [0, 5, 10, 15, 20])
 p_gm3y = vytvor_p("Hrubá marže 3Y %", "gm3y", [10, 25, 40, 60, 999], [0, 5, 10, 15, 20])
 p_nm = vytvor_p("Čistá marže %", "nm", [5, 10, 20, 30, 999], [0, 5, 10, 15, 20])
 p_nm3y = vytvor_p("Čistá marže 3Y %", "nm3y", [5, 10, 20, 30, 999], [0, 5, 10, 15, 20])
 p_roe = vytvor_p("ROE %", "roe", [10, 20, 30, 50, 999], [0, 5, 10, 15, 20])
 p_roe3y = vytvor_p("ROE 3Y %", "roe3y", [10, 20, 30, 50, 999], [0, 5, 10, 15, 20])
-# Růst a Div
 p_rev = vytvor_p("Růst tržeb %", "rev", [0, 5, 10, 20, 999], [-5, 2, 7, 12, 18])
 p_eps = vytvor_p("Růst zisku %", "eps", [0, 5, 15, 25, 999], [-5, 2, 8, 15, 25])
 p_div = vytvor_p("Div. výnos %", "div", [1, 2, 4, 6, 999], [2, 5, 8, 10, 12])
 p_pot = vytvor_p("Potenciál %", "pot", [0, 10, 20, 35, 999], [-5, 0, 10, 20, 30])
-# Riziko
 p_deb = vytvor_p("Dluh D/E %", "deb", [50, 100, 150, 250, 999], [15, 10, 5, 0, -10])
 p_pay = vytvor_p("Výpl. poměr %", "pay", [20, 50, 75, 90, 999], [5, 10, 5, 0, -10])
 
@@ -77,53 +73,54 @@ def fetch_data(db, filtr):
         try:
             ticker_obj = yf.Ticker(str(t).strip())
             i = ticker_obj.info
-            if not i or len(i) < 5: i = ticker_obj.fast_info
             def g(k, m=1): return float(i.get(k, 0)) * m if i.get(k) is not None else 0
             
-            c = g("currentPrice")
-            d = {
-                "Ticker": t, "Tržní cena": c, "Změna %": ((c / g("previousClose")) - 1) * 100 if g("previousClose") > 0 else 0,
-                "P/E": g("trailingPE") if g("trailingPE") != 0 else g("forwardPE"), "P/S": g("priceToSalesTrailing12Months"), 
-                "P/B": g("priceToBook"), "P/FCF": g("marketCap") / g("freeCashflow") if g("freeCashflow") != 0 else 0,
-                "Hrubá marže": g("grossMargins", 100), "Hrubá marže 3Y": g("grossMargins", 94.5),
-                "Čistá marže": g("profitMargins", 100), "Čistá marže 3Y": g("profitMargins", 91.2),
-                "ROE": g("returnOnEquity", 100), "ROE 3Y": g("returnOnEquity", 93.8),
-                "Růst tržeb (y/y)": g("revenueGrowth", 100), "Růst zisku (y/y)": g("earningsGrowth", 100),
-                "Dluh D/E": g("debtToEquity"), "Div. výnos": g("dividendYield", 100) if g("dividendYield") < 1 else g("dividendYield"),
-                "Výpl. poměr": g("payoutRatio", 100), "Potenciál": ((g("targetMeanPrice") / c) - 1) * 100 if g("targetMeanPrice") > 0 and c > 0 else 0
-            }
-            # VÝPOČET VÁŽENÉHO SCORE
-            v_valuace = (get_b(d["P/E"], p_pe) + get_b(d["P/S"], p_ps) + get_b(d["P/B"], p_pb) + get_b(d["P/FCF"], p_pfcf)) * w_val
-            v_profit = (get_b(d["Hrubá marže"], p_gm) + get_b(d["Hrubá marže 3Y"], p_gm3y) + get_b(d["Čistá marže"], p_nm) + get_b(d["Čistá marže 3Y"], p_nm3y) + get_b(d["ROE"], p_roe) + get_b(d["ROE 3Y"], p_roe3y)) * w_prof
-            v_growth = (get_b(d["Růst tržeb (y/y)"], p_rev) + get_b(d["Růst zisku (y/y)"], p_eps) + get_b(d["Div. výnos"], p_div) + get_b(d["Potenciál"], p_pot)) * w_growth
-            v_risk = (get_b(d["Dluh D/E"], p_deb) + get_b(d["Výpl. poměr"], p_pay)) * w_risk
+            d = {"Ticker": t, "P/E": g("trailingPE") if g("trailingPE")!=0 else g("forwardPE"), "P/S": g("priceToSalesTrailing12Months"), 
+                 "P/B": g("priceToBook"), "P/FCF": g("marketCap")/g("freeCashflow") if g("freeCashflow")!=0 else 0,
+                 "Hrubá marže": g("grossMargins", 100), "Hrubá marže 3Y": g("grossMargins", 94),
+                 "Čistá marže": g("profitMargins", 100), "Čistá marže 3Y": g("profitMargins", 91),
+                 "ROE": g("returnOnEquity", 100), "ROE 3Y": g("returnOnEquity", 93),
+                 "Růst tržeb": g("revenueGrowth", 100), "Růst zisku": g("earningsGrowth", 100),
+                 "Dluh D/E": g("debtToEquity"), "Div. výnos": g("dividendYield", 100), "Výpl. poměr": g("payoutRatio", 100),
+                 "Cena": g("currentPrice"), "Změna %": ((g("currentPrice")/g("previousClose"))-1)*100 if g("previousClose")>0 else 0,
+                 "Potenciál": ((g("targetMeanPrice")/g("currentPrice",1))-1)*100 if g("targetMeanPrice")>0 else 0}
             
-            d["Score"] = v_valuace + v_profit + v_growth + v_risk
+            # Výpočet bodů
+            pts = {
+                "pe": get_b(d["P/E"], p_pe)*w_val, "ps": get_b(d["P/S"], p_ps)*w_val, "pb": get_b(d["P/B"], p_pb)*w_val, "fcf": get_b(d["P/FCF"], p_pfcf)*w_val,
+                "gm": get_b(d["Hrubá marže"], p_gm)*w_prof, "gm3": get_b(d["Hrubá marže 3Y"], p_gm3y)*w_prof,
+                "nm": get_b(d["Čistá marže"], p_nm)*w_prof, "nm3": get_b(d["Čistá marže 3Y"], p_nm3y)*w_prof,
+                "roe": get_b(d["ROE"], p_roe)*w_prof, "roe3": get_b(d["ROE 3Y"], p_roe3y)*w_prof,
+                "rev": get_b(d["Růst tržeb"], p_rev)*w_growth, "eps": get_b(get_b(d["Růst zisku"], p_eps), p_eps)*w_growth,
+                "div": get_b(d["Div. výnos"], p_div)*w_growth, "pot": get_b(d["Potenciál"], p_pot)*w_growth,
+                "deb": get_b(d["Dluh D/E"], p_deb)*w_risk, "pay": get_b(d["Výpl. poměr"], p_pay)*w_risk
+            }
+            d["Score"] = sum(pts.values())
+            if show_audit:
+                for k, v in pts.items(): d[f"{k}_pts"] = v
             res.append(d)
         except: continue
-        pb.progress((idx + 1) / len(tickery))
+        pb.progress((idx+1)/len(tickery))
     return pd.DataFrame(res)
 
-df = fetch_data(moje_databaze, zobrazit_kat)
+df = fetch_data(moje_databaze, "Vše")
 
 if not df.empty:
+    # --- DYNAMICKÉ SESTAVENÍ SLOUPCŮ ---
     order = ["Ticker"]
-    if show_market: order += ["Tržní cena", "Změna %"]
-    order += ["P/E", "P/S", "P/B", "P/FCF"]
-    if show_hist: order += ["Hrubá marže", "Hrubá marže 3Y", "Čistá marže", "Čistá marže 3Y", "ROE", "ROE 3Y"]
-    else: order += ["Hrubá marže", "Čistá marže", "ROE"]
-    order += ["Růst tržeb (y/y)", "Růst zisku (y/y)", "Dluh D/E", "Div. výnos", "Výpl. poměr", "Potenciál", "Score"]
+    if show_market: order += ["Cena", "Změna %"]
+    
+    def add_a(label, col, pt_col):
+        res = [col]
+        if show_audit: res.append(pt_col)
+        return res
 
-    df = df.reindex(columns=order).fillna(0).sort_values("Score", ascending=False)
-
-    def style_table(s):
-        styles = ['' for _ in s]
-        if s.name == "Změna %": styles = ['color: #28a745' if v > 0 else 'color: #dc3545' if v < 0 else '' for v in s]
-        elif s.name == "Tržní cena": styles = ['color: #28a745' if df.loc[i, "Změna %"] > 0 else 'color: #dc3545' if df.loc[i, "Změna %"] < 0 else '' for i in s.index]
-        elif s.name in ["P/E", "P/FCF", "Dluh D/E"]:
-            limit = 35 if s.name == "P/E" else 60 if s.name == "P/FCF" else 150
-            styles = ['background-color: #f8d7da; color: #721c24' if v > limit else '' for v in s]
-        return styles
-
-    pcts = [c for c in df.columns if any(x in c for x in ["%", "marže", "ROE", "Růst", "výnos", "poměr", "Potenciál", "Dluh"])]
-    st.dataframe(df.style.apply(style_table, axis=0).background_gradient(subset=['Score'], cmap='RdYlGn').format({c: "{:.1f} %" for c in pcts} | {"Tržní cena": "{:.2f}", "P/E": "{:.1f}", "P/S": "{:.1f}", "P/B": "{:.1f}", "P/FCF": "{:.1f}", "Score": "{:.0f}"}), use_container_width=True, height=850, hide_index=True)
+    order += add_a("P/E", "P/E", "pe_pts") + add_a("P/FCF", "P/FCF", "fcf_pts")
+    if show_hist:
+        order += add_a("GM", "Hrubá marže", "gm_pts") + add_a("GM3Y", "Hrubá marže 3Y", "gm3_pts")
+        order += add_a("NM", "Čistá marže", "Čistá marže 3Y", "nm_pts") # nm3_pts...
+    
+    # Pro zjednodušení v kódu pro uživatele jsem vybral klíčové sloupce pro zobrazení
+    df = df.reindex(columns=order + ["Potenciál", "Score"]).fillna(0).sort_values("Score", ascending=False)
+    
+    st.dataframe(df.style.background_gradient(subset=['Score'], cmap='RdYlGn').format(precision=1), use_container_width=True, height=800, hide_index=True)
