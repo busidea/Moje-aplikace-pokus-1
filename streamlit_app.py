@@ -3,9 +3,9 @@ import pandas as pd
 import yfinance as yf
 from datetime import datetime, date
 
-st.set_page_config(page_title="Investiční Matrix V61", layout="wide")
+st.set_page_config(page_title="Investiční Matrix V62", layout="wide")
 
-# --- NAČTENÍ SEZNAMU ---
+# --- 1. NAČTENÍ SEZNAMU (Robustní) ---
 ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
 
 @st.cache_data(ttl=300)
@@ -15,12 +15,15 @@ def nacti_seznam(odkaz):
         df = pd.read_csv(csv_url)
         df.columns = [c.strip() for c in df.columns]
         df['Ticker'] = df['Ticker'].astype(str).str.strip().str.upper()
+        # Převod Earnings Day na datetime hned při načtení
+        if 'Earnings Day' in df.columns:
+            df['Earnings Day'] = pd.to_datetime(df['Earnings Day'], dayfirst=True, errors='coerce')
         return df
     except: return pd.DataFrame()
 
 df_raw = nacti_seznam(ODKAZ_NA_TABULKU)
 
-# --- SIDEBAR (Kompletní sada 16 ovladačů) ---
+# --- 2. SIDEBAR (Všech 16 ovladačů) ---
 st.sidebar.header("🔍 Nastavení")
 filtr_kat = st.sidebar.selectbox("Zobrazit tituly:", ["Vše", "Portfolio", "Sledované"])
 w_val = st.sidebar.slider("Váha: Valuace", 0.5, 3.0, 1.0)
@@ -39,7 +42,7 @@ def vytvor_p(nazev, zk, def_h, def_b):
             d.append({"h": h, "b": b})
         return d
 
-# Všech 16 parametrů
+# Definice pásem pro bodování (zůstávají v plném rozsahu)
 p_pe = vytvor_p("P/E", "pe", [15, 25, 35, 50, 999], [15, 10, 5, 0, -5])
 p_ps = vytvor_p("P/S", "ps", [2, 5, 8, 12, 999], [10, 7, 3, 0, -5])
 p_pb = vytvor_p("P/B", "pb", [1, 3, 5, 10, 999], [10, 5, 2, 0, -2])
@@ -62,13 +65,13 @@ def get_b(val, pasma):
         if val <= p["h"]: return p["b"]
     return pasma[-1]["b"]
 
-# --- HLAVNÍ VÝPOČET ---
+# --- 3. HLAVNÍ VÝPOČETNÍ MOTOR ---
 @st.cache_data(ttl=3600)
-def fetch_matrix_v61(df_source, kat_filtr):
-    if df_source.empty: return pd.DataFrame(), pd.DataFrame()
-    df_active = df_source if kat_filtr == "Vše" else df_source[df_source['Kategorie'] == kat_filtr]
+def fetch_all_v62(df_input, kat):
+    if df_input.empty: return pd.DataFrame(), pd.DataFrame()
+    df_active = df_input if kat == "Vše" else df_input[df_input['Kategorie'] == kat]
     
-    m_data, c_data = [], []
+    m_list, c_list = [], []
     today = date.today()
     pb = st.progress(0)
     
@@ -81,12 +84,29 @@ def fetch_matrix_v61(df_source, kat_filtr):
 
     for idx, row in enumerate(df_active.to_dict('records')):
         t = str(row.get('Ticker', '')).strip().upper()
+        
+        # --- KALENDÁŘ - PŘÍPRAVA ZÁKLADU (Vždy se provede) ---
+        dni_do = 999
+        earn_str = "Nezadáno"
+        raw_earn = row.get('Earnings Day')
+        if pd.notnull(raw_earn):
+            dt = pd.to_datetime(raw_earn)
+            dni_do = (dt.date() - today).days
+            earn_str = dt.strftime('%d.%m.%Y') if dni_do >= 0 else f"Proběhlo ({dt.strftime('%d.%m.')})"
+
+        # Výchozí hodnoty pro kalendář (pokud Yahoo selže)
+        c_row = {
+            "Ticker": t, "Earnings Day": earn_str, "Dní do": dni_do if 0 <= dni_do < 500 else "-",
+            "Zprávy": "Nenačteno", "Dividenda": "-", "Ex-Date": "-", "Highlight": 1 if 0 <= dni_do <= 14 else 0
+        }
+
+        # --- YAHOO DATA ---
         try:
             tick = yf.Ticker(t)
             inf = tick.info
             def g(k, m=1): return float(inf.get(k, 0)) * m if inf.get(k) is not None else 0
             
-            # Data pro Matrix
+            # Matrix data
             d = {
                 "Ticker": t, "Cena": g("currentPrice"), "Změna %": ((g("currentPrice")/g("previousClose", 1))-1)*100,
                 "P/E": g("trailingPE") or g("forwardPE"), "P/S": g("priceToSalesTrailing12Months"), "P/B": g("priceToBook"),
@@ -101,57 +121,42 @@ def fetch_matrix_v61(df_source, kat_filtr):
             }
             pts = {k: get_b(d[k], v[0])*v[1] for k, v in mapping.items() if k in d}
             d["Score"] = sum(pts.values())
-            m_data.append(d)
+            m_list.append(d)
             if show_audit:
                 a_row = {k: pts.get(k, 0) for k in d if k in mapping}
                 a_row.update({"Ticker": "└─ body", "Score": d["Score"], "Type": "Pts"})
-                m_data.append(a_row)
+                m_list.append(a_row)
 
-            # Data pro Kalendář
-            dni_do = 999
-            earn_str = "Nezadáno"
-            raw_earn = row.get('Earnings Day')
-            if pd.notnull(raw_earn) and str(raw_earn).strip() != "":
-                try:
-                    dt = pd.to_datetime(raw_earn, dayfirst=True)
-                    dni_do = (dt.date() - today).days
-                    earn_str = dt.strftime('%d.%m.%Y') if dni_do >= 0 else f"Proběhlo ({dt.strftime('%d.%m.')})"
-                except: earn_str = "Chyba formátu"
-
-            news_w = ""
+            # Doplnění Kalendáře z Yahoo
+            news_trigger = ""
             for n in tick.news[:5]:
                 if any(kw in n['title'].lower() for kw in ["earnings", "results", "report"]):
-                    news_w = "🚨 News report"
+                    news_trigger = "🚨 News report"
                     break
             
-            c_data.append({
-                "Ticker": t, "Earnings Day": earn_str, "Dní do": dni_do if 0 <= dni_do < 500 else "-",
-                "Zprávy": news_w or "Klid", "Dividenda": f"{inf.get('dividendRate', 0):.2f} USD",
-                "Ex-Date": datetime.fromtimestamp(inf.get('exDividendDate')).date() if inf.get('exDividendDate') else "Není",
-                "Highlight": 1 if 0 <= dni_do <= 14 or news_w != "" else 0
-            })
-        except: continue
+            c_row["Zprávy"] = news_trigger or "Klid"
+            c_row["Dividenda"] = f"{inf.get('dividendRate', 0):.2f} USD"
+            if inf.get('exDividendDate'):
+                c_row["Ex-Date"] = datetime.fromtimestamp(inf.get('exDividendDate')).date().strftime('%d.%m.%Y')
+            if news_trigger: c_row["Highlight"] = 1
+            
+        except:
+            # I když Yahoo selže, přidáme do Matrixu aspoň prázdný řádek s tickerem
+            m_list.append({"Ticker": t, "Type": "Val", "Score": 0, "Cena": 0, "Změna %": 0})
+            
+        c_list.append(c_row)
         pb.progress((idx+1)/len(df_active))
-    return pd.DataFrame(m_data), pd.DataFrame(c_data)
+        
+    return pd.DataFrame(m_list), pd.DataFrame(c_list)
 
-df_m, df_c = fetch_matrix_v61(df_raw, filtr_kat)
+df_m, df_c = fetch_all_v62(df_raw, filtr_kat)
 
-# --- ZOBRAZENÍ ---
+# --- 4. ZOBRAZENÍ ---
 if not df_m.empty:
     st.subheader(f"📊 Matrix Tržních Hodnot ({filtr_kat})")
     cols = ["Ticker", "Cena", "Změna %", "P/E", "P/S", "P/B", "P/FCF", "Hrubá marže", "Hrubá marže 3Y", "Čistá marže", "Čistá marže 3Y", "ROE", "ROE 3Y", "Růst tržeb (y/y)", "Růst zisku (y/y)", "Dluh D/E", "Div. výnos", "Výplatní poměr", "Potenciál", "Score"]
     pct_cols = ["Změna %", "Hrubá marže", "Hrubá marže 3Y", "Čistá marže", "Čistá marže 3Y", "ROE", "ROE 3Y", "Růst tržeb (y/y)", "Růst zisku (y/y)", "Dluh D/E", "Div. výnos", "Výplatní poměr", "Potenciál"]
-    
-    def st_m(row):
-        if row.Type == "Pts": return ['background-color: #f8f9fa; color: #adb5bd; font-style: italic'] * len(row)
-        stls = [''] * len(row)
-        c = 'color: #28a745; font-weight: bold' if row["Změna %"] > 0 else 'color: #dc3545; font-weight: bold'
-        stls[cols.index("Cena")], stls[cols.index("Změna %")] = c, c
-        if row["P/E"] > 30: stls[cols.index("P/E")] = 'background-color: #ffe5e5; color: #cc0000'
-        if row["Potenciál"] > 20: stls[cols.index("Potenciál")] = 'background-color: #28a745; color: white; font-weight: bold'
-        return stls
-
-    st.dataframe(df_m.style.apply(st_m, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn").format({c: "{:.1f} %" for c in pct_cols}, precision=1), use_container_width=True, hide_index=True, column_order=cols)
+    st.dataframe(df_m.style.apply(lambda r: ['background-color: #f8f9fa; color: #adb5bd' if r.Type=="Pts" else '' for _ in r], axis=1).format({c: "{:.1f} %" for c in pct_cols}, precision=1), use_container_width=True, hide_index=True, column_order=cols)
 
 if not df_c.empty:
     st.subheader("📅 Kalendář událostí")
