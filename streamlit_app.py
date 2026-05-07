@@ -4,7 +4,7 @@ import yfinance as yf
 from datetime import datetime, date
 import numpy as np
 
-st.set_page_config(page_title="Investiční Matrix V72", layout="wide")
+st.set_page_config(page_title="Investiční Matrix V73", layout="wide")
 
 # --- 1. NAČTENÍ SEZNAMU ---
 ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
@@ -72,7 +72,7 @@ def get_b(val, pasma):
 
 # --- 3. VÝPOČETNÍ JÁDRO ---
 @st.cache_data(ttl=3600)
-def fetch_v72(df_input, kat):
+def fetch_v73(df_input, kat):
     if df_input.empty: return []
     df_active = df_input if kat == "Vše" else df_input[df_input['Kategorie'] == kat]
     results, today = [], date.today()
@@ -82,7 +82,6 @@ def fetch_v72(df_input, kat):
         try:
             tick = yf.Ticker(t)
             inf, hist = tick.info, tick.history(period="1mo")
-            
             rsi_txt = "Neznámo"
             if len(hist) > 14:
                 delta = hist['Close'].diff()
@@ -91,18 +90,16 @@ def fetch_v72(df_input, kat):
                 rs = gain / loss
                 rsi = 100 - (100 / (1 + rs.iloc[-1]))
                 rsi_txt = f"🔴 Překoup.({int(rsi)})" if rsi > 70 else (f"🟢 Levné({int(rsi)})" if rsi < 30 else f"⚪ Neutr.({int(rsi)})")
-
             dni_do, earn_str = 999, "Nezadáno"
             if pd.notnull(row.get('Earnings Day')):
                 dt = pd.to_datetime(row['Earnings Day'], dayfirst=True)
                 dni_do = (dt.date() - today).days
                 earn_str = dt.strftime('%d.%m.%Y') if dni_do >= 0 else f"Expirace ({dt.strftime('%d.%m.')})"
-
             results.append({"ticker": t, "info": inf, "rsi": rsi_txt, "earn_str": earn_str, "dni_do": dni_do})
         except: continue
     return results
 
-raw_data = fetch_v72(df_raw, filtr_kat)
+raw_data = fetch_v73(df_raw, filtr_kat)
 
 # --- 4. ZOBRAZENÍ ---
 if raw_data:
@@ -121,24 +118,22 @@ if raw_data:
         
         # Matrix Row
         d = {"Ticker": t, "Cena": g("currentPrice"), "Změna": ((g("currentPrice")/g("previousClose", 1))-1)*100, "Type": "Val"}
-        # Doplnění ostatních polí
-        for k in mapping:
-            if k == "P/E": d[k] = g("trailingPE") or g("forwardPE")
-            elif k == "P/S": d[k] = g("priceToSalesTrailing12Months")
-            elif k == "P/B": d[k] = g("priceToBook")
-            elif k == "P/FCF": d[k] = g("marketCap")/g("freeCashflow") if g("freeCashflow")!=0 else 0
-            elif k == "H-Marže": d[k] = g("grossMargins", 100)
-            elif k == "H-Marže 3Y": d[k] = g("grossMargins", 94)
-            elif k == "Č-Marže": d[k] = g("profitMargins", 100)
-            elif k == "Č-Marže 3Y": d[k] = g("profitMargins", 91)
-            elif k == "ROE": d[k] = g("returnOnEquity", 100)
-            elif k == "ROE 3Y": d[k] = g("returnOnEquity", 93)
-            elif k == "Tržby y/y": d[k] = g("revenueGrowth", 100)
-            elif k == "Zisk y/y": d[k] = g("earningsGrowth", 100)
-            elif k == "Dluh D/E": d[k] = g("debtToEquity")
-            elif k == "Div. výnos": d[k] = g("dividendYield", 100)
-            elif k == "Payout": d[k] = g("payoutRatio", 100)
-            elif k == "Potenciál": d[k] = ((g("targetMeanPrice")/g("currentPrice", 1))-1)*100 if g("targetMeanPrice")>0 else 0
+        d["P/E"] = g("trailingPE") or g("forwardPE")
+        d["P/S"] = g("priceToSalesTrailing12Months")
+        d["P/B"] = g("priceToBook")
+        d["P/FCF"] = g("marketCap")/g("freeCashflow") if g("freeCashflow")!=0 else 0
+        d["H-Marže"] = g("grossMargins", 100)
+        d["H-Marže 3Y"] = g("grossMargins", 94)
+        d["Č-Marže"] = g("profitMargins", 100)
+        d["Č-Marže 3Y"] = g("profitMargins", 91)
+        d["ROE"] = g("returnOnEquity", 100)
+        d["ROE 3Y"] = g("returnOnEquity", 93)
+        d["Tržby y/y"] = g("revenueGrowth", 100)
+        d["Zisk y/y"] = g("earningsGrowth", 100)
+        d["Dluh D/E"] = g("debtToEquity")
+        d["Div. výnos"] = g("dividendYield", 100)
+        d["Payout"] = g("payoutRatio", 100)
+        d["Potenciál"] = ((g("targetMeanPrice")/g("currentPrice", 1))-1)*100 if g("targetMeanPrice")>0 else 0
         
         pts = {k: get_b(d[k], mapping[k][0])*mapping[k][1] for k in mapping if k in d}
         d["Score"] = sum(pts.values())
@@ -152,7 +147,6 @@ if raw_data:
         rec = inf.get('recommendationKey', 'Nezadáno').replace('_', ' ').title()
         ex_raw = inf.get('exDividendDate')
         ex_dt = datetime.fromtimestamp(ex_raw).date() if ex_raw else None
-        
         c_rows.append({
             "Ticker": t, "Earnings Day": item["earn_str"], "Dní do": item["dni_do"] if item["dni_do"] < 400 else "-",
             "Dividenda": f"{g('dividendRate'):.2f} {'Kč' if inf.get('currency')=='CZK' else 'USD'}", 
@@ -163,27 +157,46 @@ if raw_data:
             "_alert_ex": 1 if ex_dt and 0 <= (ex_dt - today).days <= 10 else 0
         })
 
-    # Zobrazení Matrixu
+    # --- STYLOVÁNÍ MATRIXU ---
     df_m = pd.DataFrame(m_rows)
     cols = ["Ticker", "Cena", "Změna", "P/E", "P/S", "P/B", "P/FCF", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Payout", "Potenciál", "Score"]
     pct_cols = ["Změna", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Div. výnos", "Payout", "Potenciál"]
-    
+
+    def style_matrix_dynamic(row):
+        styles = [''] * len(row)
+        if row["Type"] == "Pts":
+            return ['background-color: #f8f9fa; color: #adb5bd; font-style: italic'] * len(row)
+        
+        # Barvení Ceny a Změny
+        c_idx = row.index.get_loc("Cena")
+        z_idx = row.index.get_loc("Změna")
+        if row["Změna"] > 0:
+            styles[c_idx] = styles[z_idx] = 'color: #28a745; font-weight: bold'
+        elif row["Změna"] < 0:
+            styles[c_idx] = styles[z_idx] = 'color: #dc3545; font-weight: bold'
+        
+        # Podmíněné barvení hodnot (Mluvící tabulka)
+        if row["P/E"] > 35: styles[row.index.get_loc("P/E")] = 'background-color: #ffe5e5; color: #cc0000'
+        if row["Potenciál"] > 20: styles[row.index.get_loc("Potenciál")] = 'background-color: #e5f9e5; color: #155724; font-weight: bold'
+        if row["Dluh D/E"] > 200: styles[row.index.get_loc("Dluh D/E")] = 'color: #721c24; background-color: #f8d7da'
+        if row["Č-Marže"] > 25: styles[row.index.get_loc("Č-Marže")] = 'background-color: #d4edda'
+        
+        return styles
+
     st.subheader(f"📊 Matrix Tržních Hodnot ({filtr_kat})")
-    st.dataframe(df_m.style.apply(lambda row: ['background-color: #f8f9fa; color: #adb5bd; font-style: italic' if row["Type"]=="Pts" else '' for _ in row], axis=1)
+    st.dataframe(df_m.style.apply(style_matrix_dynamic, axis=1)
                  .background_gradient(subset=["Score"], cmap="RdYlGn")
                  .format({c: "{:.1f}%" for c in pct_cols}, precision=1), 
                  use_container_width=True, hide_index=True, column_order=cols)
 
-    # Zobrazení Kalendáře (STABILNÍ BARVENÍ)
+    # --- STYLOVÁNÍ KALENDÁŘE ---
     st.subheader("📅 Kalendář & Tržní Sentiment")
     df_c = pd.DataFrame(c_rows)
-    
     def style_cal_stable(row):
         styles = [''] * len(row)
         if row["_alert_earn"] == 1: styles[row.index.get_loc("Dní do")] = 'background-color: #ffc107; color: black; font-weight: bold'
         if row["_alert_buy"] == 1: styles[row.index.get_loc("Analytické hodnocení")] = 'background-color: #28a745; color: white; font-weight: bold'
         if row["_alert_ex"] == 1: styles[row.index.get_loc("Ex-Date")] = 'background-color: #007bff; color: white; font-weight: bold'
-        
         rsi_val = str(row["RSI"])
         if "🔴" in rsi_val: styles[row.index.get_loc("RSI")] = 'background-color: #ffe5e5; color: #cc0000'
         elif "🟢" in rsi_val: styles[row.index.get_loc("RSI")] = 'background-color: #e5f9e5; color: #28a745'
@@ -192,6 +205,3 @@ if raw_data:
     st.dataframe(df_c.style.apply(style_cal_stable, axis=1), 
                  use_container_width=True, hide_index=True, 
                  column_order=["Ticker", "Earnings Day", "Dní do", "Dividenda", "Ex-Date", "Analytické hodnocení", "RSI"])
-    
-    with st.expander("💡 Legenda"):
-        st.write("Žlutá = Výsledky do 14 dnů. Zelená = Strong Buy. Modrá = Ex-Date do 10 dnů.")
