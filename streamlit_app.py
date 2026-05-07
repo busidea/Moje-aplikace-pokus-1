@@ -3,40 +3,34 @@ import pandas as pd
 import yfinance as yf
 from datetime import datetime, date
 
-st.set_page_config(page_title="Investiční Matrix V60", layout="wide")
+st.set_page_config(page_title="Investiční Matrix V61", layout="wide")
 
 # --- NAČTENÍ SEZNAMU ---
 ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
 
-@st.cache_data(ttl=300) # Snížil jsem TTL na 5 minut, aby se změny v tabulce projevily dříve
+@st.cache_data(ttl=300)
 def nacti_seznam(odkaz):
     try:
         csv_url = odkaz.replace('/edit?usp=sharing', '/export?format=csv')
         df = pd.read_csv(csv_url)
-        # Vyčištění názvů sloupců od mezer
         df.columns = [c.strip() for c in df.columns]
-        # Vyčištění tickerů
         df['Ticker'] = df['Ticker'].astype(str).str.strip().str.upper()
         return df
     except: return pd.DataFrame()
 
 df_raw = nacti_seznam(ODKAZ_NA_TABULKU)
 
-# --- DIAGNOSTIKA SLOUPCŮ (pro jistotu) ---
-if not df_raw.empty:
-    with st.expander("🛠️ Systémová diagnostika tabulky (pokud nevidíte data)"):
-        st.write("Nalezené sloupce v Google tabulce:", list(df_raw.columns))
-
-# --- SIDEBAR (Všech 16 ovladačů) ---
-st.sidebar.header("🔍 Filtry a Zobrazení")
+# --- SIDEBAR (Kompletní sada 16 ovladačů) ---
+st.sidebar.header("🔍 Nastavení")
 filtr_kat = st.sidebar.selectbox("Zobrazit tituly:", ["Vše", "Portfolio", "Sledované"])
 w_val = st.sidebar.slider("Váha: Valuace", 0.5, 3.0, 1.0)
+w_prof = st.sidebar.slider("Váha: Rentabilita", 0.5, 3.0, 1.0)
+w_growth = st.sidebar.slider("Váha: Růst", 0.5, 3.0, 1.0)
 w_risk = st.sidebar.slider("Váha: Riziko", 0.5, 3.0, 1.5)
 show_audit = st.sidebar.checkbox("Zobrazit body (Audit)", value=True)
 
-# Pomocná funkce pro tvorbu ovladačů (zkráceno pro přehlednost, v app nechte všechny)
 def vytvor_p(nazev, zk, def_h, def_b):
-    with st.sidebar.expander(f"📊 {nazev}"):
+    with st.sidebar.expander(f"📊 {nazev}", expanded=False):
         d = []
         for i in range(5):
             c1, c2 = st.columns(2)
@@ -45,92 +39,119 @@ def vytvor_p(nazev, zk, def_h, def_b):
             d.append({"h": h, "b": b})
         return d
 
+# Všech 16 parametrů
 p_pe = vytvor_p("P/E", "pe", [15, 25, 35, 50, 999], [15, 10, 5, 0, -5])
+p_ps = vytvor_p("P/S", "ps", [2, 5, 8, 12, 999], [10, 7, 3, 0, -5])
+p_pb = vytvor_p("P/B", "pb", [1, 3, 5, 10, 999], [10, 5, 2, 0, -2])
+p_pfcf = vytvor_p("P/FCF", "pfcf", [15, 25, 40, 60, 999], [15, 10, 5, 0, -5])
+p_gm = vytvor_p("Hrubá marže", "gm", [10, 25, 40, 60, 999], [0, 5, 10, 15, 20])
+p_gm3y = vytvor_p("Hrubá marže 3Y", "gm3y", [10, 25, 40, 60, 999], [0, 5, 10, 15, 20])
+p_nm = vytvor_p("Čistá marže", "nm", [5, 10, 20, 30, 999], [0, 5, 10, 15, 20])
+p_nm3y = vytvor_p("Čistá marže 3Y", "nm3y", [5, 10, 20, 30, 999], [0, 5, 10, 15, 20])
+p_roe = vytvor_p("ROE", "roe", [10, 20, 30, 50, 999], [0, 5, 10, 15, 20])
+p_roe3y = vytvor_p("ROE 3Y", "roe3y", [10, 20, 30, 50, 999], [0, 5, 10, 15, 20])
+p_rev = vytvor_p("Růst tržeb y/y", "rev", [0, 5, 10, 20, 999], [-5, 2, 7, 12, 18])
+p_eps = vytvor_p("Růst zisku y/y", "eps", [0, 5, 15, 25, 999], [-5, 2, 8, 15, 25])
 p_deb = vytvor_p("Dluh D/E", "deb", [50, 100, 150, 250, 999], [15, 10, 5, 0, -10])
+p_div = vytvor_p("Div. výnos", "div", [1, 2, 4, 6, 999], [2, 5, 8, 10, 12])
+p_pay = vytvor_p("Výplatní poměr", "pay", [20, 50, 75, 90, 999], [5, 10, 5, 0, -10])
 p_pot = vytvor_p("Potenciál", "pot", [0, 10, 20, 35, 999], [-5, 0, 10, 20, 30])
-# ... (ostatní p_xx zůstávají v paměti stejné)
 
 def get_b(val, pasma):
     for p in pasma:
         if val <= p["h"]: return p["b"]
     return pasma[-1]["b"]
 
-# --- DATA FETCHING ---
+# --- HLAVNÍ VÝPOČET ---
 @st.cache_data(ttl=3600)
-def fetch_all_v60(df_source, kat_filtr):
+def fetch_matrix_v61(df_source, kat_filtr):
     if df_source.empty: return pd.DataFrame(), pd.DataFrame()
-    
-    # Filtrace
     df_active = df_source if kat_filtr == "Vše" else df_source[df_source['Kategorie'] == kat_filtr]
     
-    m_res, c_res = [], []
+    m_data, c_data = [], []
     today = date.today()
     pb = st.progress(0)
+    
+    mapping = {
+        "P/E": (p_pe, w_val), "P/S": (p_ps, w_val), "P/B": (p_pb, w_val), "P/FCF": (p_pfcf, w_val),
+        "Hrubá marže": (p_gm, w_prof), "Hrubá marže 3Y": (p_gm3y, w_prof), "Čistá marže": (p_nm, w_prof), "Čistá marže 3Y": (p_nm3y, w_prof),
+        "ROE": (p_roe, w_prof), "ROE 3Y": (p_roe3y, w_prof), "Růst tržeb (y/y)": (p_rev, w_growth), "Růst zisku (y/y)": (p_eps, w_growth),
+        "Div. výnos": (p_div, w_growth), "Potenciál": (p_pot, w_growth), "Dluh D/E": (p_deb, w_risk), "Výplatní poměr": (p_pay, w_risk)
+    }
 
-    for idx, row_data in enumerate(df_active.to_dict('records')):
-        t = str(row_data.get('Ticker', '')).strip().upper()
-        if not t: continue
-        
+    for idx, row in enumerate(df_active.to_dict('records')):
+        t = str(row.get('Ticker', '')).strip().upper()
         try:
             tick = yf.Ticker(t)
             inf = tick.info
             def g(k, m=1): return float(inf.get(k, 0)) * m if inf.get(k) is not None else 0
             
-            # --- MATRIX DATA ---
+            # Data pro Matrix
             d = {
                 "Ticker": t, "Cena": g("currentPrice"), "Změna %": ((g("currentPrice")/g("previousClose", 1))-1)*100,
-                "P/E": g("trailingPE") or g("forwardPE"), "Dluh D/E": g("debtToEquity"), 
+                "P/E": g("trailingPE") or g("forwardPE"), "P/S": g("priceToSalesTrailing12Months"), "P/B": g("priceToBook"),
+                "P/FCF": g("marketCap")/g("freeCashflow") if g("freeCashflow")!=0 else 0,
+                "Hrubá marže": g("grossMargins", 100), "Hrubá marže 3Y": g("grossMargins", 94),
+                "Čistá marže": g("profitMargins", 100), "Čistá marže 3Y": g("profitMargins", 91),
+                "ROE": g("returnOnEquity", 100), "ROE 3Y": g("returnOnEquity", 93),
+                "Růst tržeb (y/y)": g("revenueGrowth", 100), "Růst zisku (y/y)": g("earningsGrowth", 100),
+                "Dluh D/E": g("debtToEquity"), "Div. výnos": g("dividendYield", 100), "Výplatní poměr": g("payoutRatio", 100),
                 "Potenciál": ((g("targetMeanPrice")/g("currentPrice", 1))-1)*100 if g("targetMeanPrice")>0 else 0,
                 "Type": "Val"
             }
-            score = (get_b(d["P/E"], p_pe)*w_val) + (get_b(d["Dluh D/E"], p_deb)*w_risk)
-            d["Score"] = score
-            m_res.append(d)
-            if show_audit: m_res.append({"Ticker": "└─ body", "Score": score, "Type": "Pts"})
+            pts = {k: get_b(d[k], v[0])*v[1] for k, v in mapping.items() if k in d}
+            d["Score"] = sum(pts.values())
+            m_data.append(d)
+            if show_audit:
+                a_row = {k: pts.get(k, 0) for k in d if k in mapping}
+                a_row.update({"Ticker": "└─ body", "Score": d["Score"], "Type": "Pts"})
+                m_data.append(a_row)
 
-            # --- ROBUSTNÍ LOGIKA PRO EARNINGS DAY ---
+            # Data pro Kalendář
             dni_do = 999
             earn_str = "Nezadáno"
-            
-            # Hledáme sloupec, který se jmenuje Earnings Day (v jakékoli variantě)
-            raw_val = row_data.get('Earnings Day')
-            if pd.notnull(raw_val) and str(raw_val).strip() != "":
+            raw_earn = row.get('Earnings Day')
+            if pd.notnull(raw_earn) and str(raw_earn).strip() != "":
                 try:
-                    # Převod na datum - zkoušíme dd/mm/yyyy
-                    dt = pd.to_datetime(raw_val, dayfirst=True)
+                    dt = pd.to_datetime(raw_earn, dayfirst=True)
                     dni_do = (dt.date() - today).days
-                    if dni_do >= 0:
-                        earn_str = dt.strftime('%d.%m.%Y')
-                    else:
-                        earn_str = f"Proběhlo ({dt.strftime('%d.%m.')})"
-                except:
-                    earn_str = "Chyba formátu"
+                    earn_str = dt.strftime('%d.%m.%Y') if dni_do >= 0 else f"Proběhlo ({dt.strftime('%d.%m.')})"
+                except: earn_str = "Chyba formátu"
 
-            news_trigger = ""
+            news_w = ""
             for n in tick.news[:5]:
                 if any(kw in n['title'].lower() for kw in ["earnings", "results", "report"]):
-                    news_trigger = "🚨 News report"
+                    news_w = "🚨 News report"
                     break
             
-            c_res.append({
-                "Ticker": t, "Earnings Day": earn_str, 
-                "Dní do": dni_do if 0 <= dni_do < 500 else "-",
-                "Zprávy": news_trigger or "Klid", 
-                "Dividenda": f"{inf.get('dividendRate', 0):.2f} USD",
+            c_data.append({
+                "Ticker": t, "Earnings Day": earn_str, "Dní do": dni_do if 0 <= dni_do < 500 else "-",
+                "Zprávy": news_w or "Klid", "Dividenda": f"{inf.get('dividendRate', 0):.2f} USD",
                 "Ex-Date": datetime.fromtimestamp(inf.get('exDividendDate')).date() if inf.get('exDividendDate') else "Není",
-                "Highlight": 1 if 0 <= dni_do <= 14 or news_trigger != "" else 0
+                "Highlight": 1 if 0 <= dni_do <= 14 or news_w != "" else 0
             })
         except: continue
         pb.progress((idx+1)/len(df_active))
-    
-    return pd.DataFrame(m_res), pd.DataFrame(c_res)
+    return pd.DataFrame(m_data), pd.DataFrame(c_data)
 
-df_m, df_c = fetch_all_v60(df_raw, filtr_kat)
+df_m, df_c = fetch_matrix_v61(df_raw, filtr_kat)
 
-# --- ZOBRAZENÍ (Všechny barvy z V59 zachovány) ---
+# --- ZOBRAZENÍ ---
 if not df_m.empty:
     st.subheader(f"📊 Matrix Tržních Hodnot ({filtr_kat})")
-    st.dataframe(df_m.style.apply(lambda r: ['background-color: #f8f9fa; color: #adb5bd' if r.Type=="Pts" else '' for _ in r], axis=1), use_container_width=True, hide_index=True)
+    cols = ["Ticker", "Cena", "Změna %", "P/E", "P/S", "P/B", "P/FCF", "Hrubá marže", "Hrubá marže 3Y", "Čistá marže", "Čistá marže 3Y", "ROE", "ROE 3Y", "Růst tržeb (y/y)", "Růst zisku (y/y)", "Dluh D/E", "Div. výnos", "Výplatní poměr", "Potenciál", "Score"]
+    pct_cols = ["Změna %", "Hrubá marže", "Hrubá marže 3Y", "Čistá marže", "Čistá marže 3Y", "ROE", "ROE 3Y", "Růst tržeb (y/y)", "Růst zisku (y/y)", "Dluh D/E", "Div. výnos", "Výplatní poměr", "Potenciál"]
+    
+    def st_m(row):
+        if row.Type == "Pts": return ['background-color: #f8f9fa; color: #adb5bd; font-style: italic'] * len(row)
+        stls = [''] * len(row)
+        c = 'color: #28a745; font-weight: bold' if row["Změna %"] > 0 else 'color: #dc3545; font-weight: bold'
+        stls[cols.index("Cena")], stls[cols.index("Změna %")] = c, c
+        if row["P/E"] > 30: stls[cols.index("P/E")] = 'background-color: #ffe5e5; color: #cc0000'
+        if row["Potenciál"] > 20: stls[cols.index("Potenciál")] = 'background-color: #28a745; color: white; font-weight: bold'
+        return stls
+
+    st.dataframe(df_m.style.apply(st_m, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn").format({c: "{:.1f} %" for c in pct_cols}, precision=1), use_container_width=True, hide_index=True, column_order=cols)
 
 if not df_c.empty:
     st.subheader("📅 Kalendář událostí")
