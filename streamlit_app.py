@@ -2,11 +2,16 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 from datetime import datetime, date
+import numpy as np
 
-st.set_page_config(page_title="Investiční Matrix V64", layout="wide")
+st.set_page_config(page_title="Investiční Matrix V67", layout="wide")
 
 # --- 1. NAČTENÍ SEZNAMU ---
 ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
+
+if st.sidebar.button("🔄 Vynutit aktualizaci z tabulky"):
+    st.cache_data.clear()
+    st.rerun()
 
 @st.cache_data(ttl=300)
 def nacti_seznam(odkaz):
@@ -20,14 +25,17 @@ def nacti_seznam(odkaz):
 
 df_raw = nacti_seznam(ODKAZ_NA_TABULKU)
 
-# --- 2. SIDEBAR (Všech 16 ovladačů zachováno) ---
-st.sidebar.header("🔍 Nastavení")
+# --- 2. SIDEBAR (Všech 16 ovladačů + Oprava Audit) ---
+st.sidebar.header("🔍 Globální filtry")
 filtr_kat = st.sidebar.selectbox("Zobrazit tituly:", ["Vše", "Portfolio", "Sledované"])
+show_audit = st.sidebar.checkbox("Zobrazit body (Audit)", value=True)
+
+st.sidebar.divider()
+st.sidebar.header("⚖️ Váhy kategorií")
 w_val = st.sidebar.slider("Váha: Valuace", 0.5, 3.0, 1.0)
 w_prof = st.sidebar.slider("Váha: Rentabilita", 0.5, 3.0, 1.0)
 w_growth = st.sidebar.slider("Váha: Růst", 0.5, 3.0, 1.0)
 w_risk = st.sidebar.slider("Váha: Riziko", 0.5, 3.0, 1.5)
-show_audit = st.sidebar.checkbox("Zobrazit body (Audit)", value=True)
 
 def vytvor_p(nazev, zk, def_h, def_b):
     with st.sidebar.expander(f"📊 {nazev}", expanded=False):
@@ -39,7 +47,7 @@ def vytvor_p(nazev, zk, def_h, def_b):
             d.append({"h": h, "b": b})
         return d
 
-# Definice pásem (zkráceno pro ukázku, v app nechte všech 16)
+# Definice parametrů (stejné jako dříve)
 p_pe = vytvor_p("P/E", "pe", [15, 25, 35, 50, 999], [15, 10, 5, 0, -5])
 p_ps = vytvor_p("P/S", "ps", [2, 5, 8, 12, 999], [10, 7, 3, 0, -5])
 p_pb = vytvor_p("P/B", "pb", [1, 3, 5, 10, 999], [10, 5, 2, 0, -2])
@@ -64,13 +72,12 @@ def get_b(val, pasma):
 
 # --- 3. HLAVNÍ VÝPOČET ---
 @st.cache_data(ttl=3600)
-def fetch_v64(df_input, kat):
+def fetch_v67(df_input, kat):
     if df_input.empty: return pd.DataFrame(), pd.DataFrame()
     df_active = df_input if kat == "Vše" else df_input[df_input['Kategorie'] == kat]
     
     m_list, c_list = [], []
     today = date.today()
-    pb = st.progress(0)
     
     mapping = {
         "P/E": (p_pe, w_val), "P/S": (p_ps, w_val), "P/B": (p_pb, w_val), "P/FCF": (p_pfcf, w_val),
@@ -79,10 +86,11 @@ def fetch_v64(df_input, kat):
         "Div. výnos": (p_div, w_growth), "Potenciál": (p_pot, w_growth), "Dluh D/E": (p_deb, w_risk), "Výplatní poměr": (p_pay, w_risk)
     }
 
+    pb = st.progress(0)
     for idx, row in enumerate(df_active.to_dict('records')):
         t = str(row.get('Ticker', '')).strip().upper()
         
-        # --- ZÁKLAD KALENDÁŘE ---
+        # --- ZÁKLAD KALENDÁŘE Z TABULKY ---
         dni_do_num = 999
         earn_str = "Nezadáno"
         raw_earn = row.get('Earnings Day')
@@ -96,9 +104,30 @@ def fetch_v64(df_input, kat):
         # --- YAHOO DATA ---
         try:
             tick = yf.Ticker(t)
+            # Historie pro RSI (14 dní + rezerva)
+            hist = tick.history(period="1mo")
             inf = tick.info
             def g(k, m=1): return float(inf.get(k, 0)) * m if inf.get(k) is not None else 0
             
+            # Výpočet RSI
+            rsi_status = "Neznámo"
+            if len(hist) > 14:
+                delta = hist['Close'].diff()
+                gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                rs = gain / loss
+                rsi = 100 - (100 / (1 + rs.iloc[-1]))
+                if rsi > 70: rsi_status = f"🔴 Překoupeno ({int(rsi)})"
+                elif rsi < 30: rsi_status = f"🟢 Levné/Příležitost ({int(rsi)})"
+                else: rsi_status = f"⚪ Neutrální ({int(rsi)})"
+
+            # Doporučení analytiků
+            rec = inf.get('recommendationKey', 'Nezadáno').replace('_', ' ').title()
+            
+            # Měna
+            curr = inf.get('currency', 'USD')
+            if curr == 'CZK': curr = 'Kč'
+
             # Matrix Data
             d = {
                 "Ticker": t, "Cena": g("currentPrice"), "Změna %": ((g("currentPrice")/g("previousClose", 1))-1)*100,
@@ -112,41 +141,30 @@ def fetch_v64(df_input, kat):
                 "Potenciál": ((g("targetMeanPrice")/g("currentPrice", 1))-1)*100 if g("targetMeanPrice")>0 else 0,
                 "Type": "Val"
             }
-            pts = {k: get_b(d[k], v[0])*v[1] for k, v in mapping.items() if k in d}
-            d["Score"] = sum(pts.values())
+            pts_vals = {k: get_b(d[k], v[0])*v[1] for k, v in mapping.items() if k in d}
+            d["Score"] = sum(pts_vals.values())
             m_list.append(d)
+            
             if show_audit:
-                a_row = {k: pts.get(k, 0) for k in d if k in mapping}
+                a_row = {k: pts_vals.get(k, 0) for k in d if k in mapping}
                 a_row.update({"Ticker": "└─ body", "Score": d["Score"], "Type": "Pts"})
                 m_list.append(a_row)
 
-            # Kalendář doplňky
-            news_w = ""
-            try:
-                for n in tick.news[:5]:
-                    if any(kw in n['title'].lower() for kw in ["earnings", "results", "report"]):
-                        news_w = "🚨 News report"
-                        break
-            except: pass
-            
-            div_val = inf.get('dividendRate') or inf.get('trailingAnnualDividendRate') or 0
-            ex_date_val = datetime.fromtimestamp(inf.get('exDividendDate')).date().strftime('%d.%m.%Y') if inf.get('exDividendDate') else "Není"
-
+            # Kalendář Data
             c_list.append({
                 "Ticker": t, "Earnings Day": earn_str, 
-                "Dní do": dni_do_num if dni_do_num < 400 else "-",
-                "Zprávy": news_w or "Klid", "Dividenda": f"{div_val:.2f} USD",
-                "Ex-Date": ex_date_val,
-                "Alert": 1 if dni_do_num <= 14 or news_w != "" else 0
+                "Dní do": dni_do_num if dni_do_num < 400 else "-", 
+                "Analytický Trend": f"📢 {rec}",
+                "Technický Status": rsi_status,
+                "Dividenda": f"{g('dividendRate'):.2f} {curr}",
+                "Ex-Date": datetime.fromtimestamp(inf.get('exDividendDate')).date().strftime('%d.%m.%Y') if inf.get('exDividendDate') else "Není",
+                "Alert": 1 if dni_do_num <= 14 or "Strong Buy" in rec else 0
             })
-        except:
-            m_list.append({"Ticker": t, "Type": "Val", "Score": 0})
-            c_list.append({"Ticker": t, "Earnings Day": earn_str, "Dní do": dni_do_num if dni_do_num < 400 else "-", "Zprávy": "Chyba", "Dividenda": "-", "Ex-Date": "-", "Alert": 0})
-        
+        except: continue
         pb.progress((idx+1)/len(df_active))
     return pd.DataFrame(m_list), pd.DataFrame(c_list)
 
-df_m, df_c = fetch_v64(df_raw, filtr_kat)
+df_m, df_c = fetch_v67(df_raw, filtr_kat)
 
 # --- 4. ZOBRAZENÍ MATRIXU ---
 if not df_m.empty:
@@ -165,25 +183,37 @@ if not df_m.empty:
 
     st.dataframe(df_m.style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn").format({c: "{:.1f} %" for c in pct_cols}, precision=1), use_container_width=True, hide_index=True, column_order=cols)
 
-# --- 5. ZOBRAZENÍ KALENDÁŘE (S cíleným barvením) ---
+# --- 5. ZOBRAZENÍ KALENDÁŘE + LEGENDA ---
 if not df_c.empty:
-    st.subheader("📅 Kalendář událostí")
+    st.subheader("📅 Kalendář & Tržní Sentiment")
     
-    def style_calendar_target(df):
-        # Vytvoříme prázdnou tabulku stylů
-        style_df = pd.DataFrame('', index=df.index, columns=df.columns)
-        # Podmínka: Pokud je Alert == 1, obarvíme pouze sloupec "Dní do"
-        # Používáme barvu #ffc107 (žlutá) pro varování
+    # Styl pro cílené barvení "Dní do"
+    def style_cal(df):
+        s = pd.DataFrame('', index=df.index, columns=df.columns)
         mask = df['Alert'] == 1
-        style_df.loc[mask, 'Dní do'] = 'background-color: #ffc107; color: black; font-weight: bold'
-        # Pokud je hodnota záporná (Expirace), dáme červené písmo pro "Dní do"
-        for idx, val in df['Dní do'].items():
-            if isinstance(val, (int, float)) and val < 0:
-                style_df.loc[idx, 'Dní do'] += '; color: #cc0000'
-        return style_df
+        s.loc[mask, 'Dní do'] = 'background-color: #ffc107; color: black; font-weight: bold'
+        return s
 
-    st.dataframe(
-        df_c.style.apply(style_calendar_target, axis=None),
-        use_container_width=True, hide_index=True, 
-        column_order=["Ticker", "Earnings Day", "Dní do", "Zprávy", "Dividenda", "Ex-Date"]
-    )
+    st.dataframe(df_c.style.apply(style_cal, axis=None), use_container_width=True, hide_index=True, 
+                 column_order=["Ticker", "Earnings Day", "Dní do", "Analytický Trend", "Technický Status", "Dividenda", "Ex-Date"])
+
+    # --- LEGENDA (Vysvětlivky) ---
+    with st.expander("💡 Vysvětlivky ke statusům v Kalendáři"):
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("""
+            **📢 Analytický Trend (Dlouhodobý výhled)**
+            *Konsenzus investičních bank (např. Goldman Sachs, J.P. Morgan) na 6-12 měsíců:*
+            - **Strong Buy:** Agresivní doporučení k nákupu.
+            - **Buy / Outperform:** Pozitivní výhled, očekává se překonání trhu.
+            - **Hold:** Neutrální výhled, akcie je fér oceněna.
+            - **Underperform / Sell:** Negativní výhled, doporučení snížit pozici.
+            """)
+        with c2:
+            st.markdown("""
+            **📊 Technický Status (Krátkodobý signál - RSI)**
+            *Indikátor RSI (14 dní) měří, zda není akcie aktuálně příliš 'vybouřená':*
+            - **🔴 Překoupeno (nad 70):** Akcie rostla příliš rychle, hrozí krátkodobá korekce (drahé).
+            - **🟢 Levné/Příležitost (pod 30):** Akcie byla silně vyprodána, může dojít k odrazu nahoru (levné).
+            - **⚪ Neutrální (30-70):** Standardní pohyb bez extrémních výkyvů.
+            """)
