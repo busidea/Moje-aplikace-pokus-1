@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 
-st.set_page_config(page_title="Investiční Matrix V42", layout="wide")
+st.set_page_config(page_title="Investiční Matrix V43", layout="wide")
 
 ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
 
@@ -17,9 +17,9 @@ def nacti_seznam_akcii(odkaz):
 
 moje_databaze = nacti_seznam_akcii(ODKAZ_NA_TABULKU)
 
-st.title("🏛️ Investiční Matrix V42")
+st.title("🏛️ Investiční Matrix V43 - Kompletní")
 
-# --- SIDEBAR: ČISTÝ A FUNKČNÍ ---
+# --- SIDEBAR ---
 st.sidebar.header("⚖️ Nastavení vah")
 w_val = st.sidebar.slider("Váha: Valuace", 0.5, 3.0, 1.0, 0.1)
 w_prof = st.sidebar.slider("Váha: Rentabilita", 0.5, 3.0, 1.0, 0.1)
@@ -40,7 +40,7 @@ def vytvor_p(nazev, zk, def_h, def_b):
             d.append({"h": h, "b": b})
         return d
 
-# --- 16 UKAZATELŮ (Všechna pásma v sidebaru) ---
+# --- Všech 16 bodovacích pásem ---
 p_pe = vytvor_p("P/E", "pe", [15, 25, 35, 50, 999], [15, 10, 5, 0, -5])
 p_ps = vytvor_p("P/S", "ps", [2, 5, 8, 12, 999], [10, 7, 3, 0, -5])
 p_pb = vytvor_p("P/B", "pb", [1, 3, 5, 10, 999], [10, 5, 2, 0, -2])
@@ -76,8 +76,10 @@ def fetch_data(db, s_audit):
             
             d = {
                 "Ticker": t, "Cena": g("currentPrice"), "Změna %": ((g("currentPrice")/g("previousClose"))-1)*100 if g("previousClose")>0 else 0,
-                "P/E": g("trailingPE") if g("trailingPE")!=0 else g("forwardPE"), "P/S": g("priceToSalesTrailing12Months"), 
-                "P/B": g("priceToBook"), "P/FCF": g("marketCap")/g("freeCashflow") if g("freeCashflow")!=0 else 0,
+                "P/E": g("trailingPE") if g("trailingPE")!=0 else g("forwardPE"), 
+                "P/S": g("priceToSalesTrailing12Months"), 
+                "P/B": g("priceToBook"), 
+                "P/FCF": g("marketCap")/g("freeCashflow") if g("freeCashflow")!=0 else 0,
                 "Hrubá marže": g("grossMargins", 100), "Hrubá marže 3Y": g("grossMargins", 94),
                 "Čistá marže": g("profitMargins", 100), "Čistá marže 3Y": g("profitMargins", 91),
                 "ROE": g("returnOnEquity", 100), "ROE 3Y": g("returnOnEquity", 93),
@@ -106,16 +108,22 @@ def fetch_data(db, s_audit):
         pb.progress((idx+1)/len(tickery))
     return pd.DataFrame(res)
 
-# Předáváme show_audit do funkce, aby se při změně znovu načetla data
 df_raw = fetch_data(moje_databaze, show_audit)
 
 if not df_raw.empty:
     df_raw = df_raw.sort_values("SortKey", ascending=False)
     
-    # Skladba sloupců (párování marží a ROE)
+    # Kompletní skladba sloupců
     disp_cols = ["Ticker"]
     if not hide_market: disp_cols += ["Cena", "Změna %"]
-    disp_cols += ["P/E", "P/FCF", "Hrubá marže", "Hrubá marže 3Y", "Čistá marže", "Čistá marže 3Y", "ROE", "ROE 3Y", "Růst tržeb", "Dluh D/E", "Div. výnos", "Potenciál", "Score"]
+    disp_cols += [
+        "P/E", "P/S", "P/B", "P/FCF", 
+        "Hrubá marže", "Hrubá marže 3Y", 
+        "Čistá marže", "Čistá marže 3Y", 
+        "ROE", "ROE 3Y", 
+        "Růst tržeb", "Růst zisku",
+        "Dluh D/E", "Div. výnos", "Výpl. poměr", "Potenciál", "Score"
+    ]
     
     def style_rows(row):
         if row["RowType"] == "Pts":
