@@ -4,7 +4,7 @@ import yfinance as yf
 from datetime import datetime, date
 import numpy as np
 
-st.set_page_config(page_title="Investiční Matrix V81", layout="wide")
+st.set_page_config(page_title="Investiční Matrix V82", layout="wide")
 
 # --- 1. POMOCNÉ FUNKCE ---
 def get_b(val, pasma):
@@ -32,7 +32,7 @@ def nacti_seznam(odkaz):
 
 df_raw = nacti_seznam(ODKAZ_NA_TABULKU)
 
-# --- 3. SIDEBAR: STRATEGIE A HLOUBKOVÁ DOKUMENTACE ---
+# --- 3. SIDEBAR: STRATEGIE A DOKUMENTACE ---
 st.sidebar.header("🎯 Analytický Mód")
 strategie = st.sidebar.radio(
     "Zvolte strategii:",
@@ -44,31 +44,29 @@ with st.sidebar.expander("🔬 Detailní nastavení 'střev'"):
     if strategie == "🛡️ Konzervativní":
         st.markdown("""
         **Priorita: Bezpečí a stabilita (Value)**
-        * **P/E:** Ideál < 15 (+20b). Nad 25 tvrdá penalizace (-15b).
-        * **Dluh D/E:** Do 60% (+20b). Nad 120% považováno za rizikové (-30b).
-        * **Profitabilita:** Sleduje ROE > 15% a stabilní marže (3Y průměry mají váhu 1.5).
-        * **Dividenda:** Odměňuje výnos 3-6%. Extrémy nad 10% (podezření na pád ceny) boduje méně.
+        * **P/E:** Ideál < 15 (+20b). **Nad 22** srážka (-10b), **nad 30** penalizace (-25b).
+        * **Dluh D/E:** Do 50% (+20b). Nad 100% penalizace (-30b).
+        * **Profitabilita:** Sleduje ROE > 15%. 3Y průměry marží nesmí klesat.
+        * **Dividenda:** Bonus za výnos 3-5%.
         """)
     elif strategie == "🚀 Růstový":
         st.markdown("""
         **Priorita: Expanze a Momentum (Growth)**
-        * **Tržby y/y:** Bonusy až od 15%. Nad 30% (+40b).
-        * **P/E:** Benevolentní. Do 35 (+10b). Nad 60 (-5b).
-        * **Marže:** Klíčová je Hrubá marže > 40%, což značí konkurenční výhodu.
-        * **Riziko:** Akceptuje vyšší dluh, pokud je vykoupen růstem zisku (EPS) > 20%.
+        * **Tržby y/y:** Bonusy od 12%. **Nad 25%** (+40b).
+        * **P/E:** Tolerantní do 45 (+10b). Penalizace až nad 70.
+        * **Marže:** Hrubá marže > 35% je nutné minimum.
+        * **Riziko:** Akceptuje dluh do 150%, pokud EPS roste o 20%+.
         """)
     elif strategie == "⚖️ Vyvážený":
         st.markdown("""
         **Priorita: Rozumný růst (GARP)**
-        * **P/E:** Hledá 'sladký bod' mezi 18 a 28.
-        * **Růst:** Cílí na udržitelných 10-15% růstu tržeb i zisku.
-        * **D/E:** Limit 100%. Vše nad je bráno jako zvýšené riziko.
-        * **Dividenda:** Bonus za udržitelný Payout < 60%.
+        * **P/E:** Ideální pásmo 15-25.
+        * **Růst:** Cílí na 8-18% růst tržeb.
+        * **D/E:** Limit 90%. Vše nad je varovný signál.
+        * **Dividenda:** Malý bonus za Payout 30-50%.
         """)
-    else:
-        st.write("V módu 'Vlastní' definujete mantinely pomocí expanderů níže.")
 
-# --- 4. OVLADAČE (KOMPLETNÍCH 16 PRO VLASTNÍ) ---
+# --- 4. OVLADAČE (Všech 16 pro Vlastní) ---
 if strategie == "Vlastní":
     st.sidebar.divider()
     w_val = st.sidebar.slider("Váha: Valuace", 0.5, 3.0, 1.2)
@@ -86,22 +84,22 @@ if strategie == "Vlastní":
                 d.append({"h": h, "b": b})
             return d
 
-    p_pe = vytvor_p("P/E", "pe", [15, 20, 30, 45, 999], [15, 10, 5, 0, -10])
-    p_ps = vytvor_p("P/S", "ps", [2, 5, 8, 12, 999], [10, 7, 3, 0, -5])
-    p_pb = vytvor_p("P/B", "pb", [1, 3, 5, 10, 999], [10, 5, 2, 0, -2])
-    p_pfcf = vytvor_p("P/FCF", "pfcf", [15, 25, 40, 60, 999], [15, 10, 5, 0, -5])
-    p_gm = vytvor_p("H-Marže", "gm", [15, 30, 45, 65, 999], [0, 5, 10, 15, 20])
-    p_gm3y = vytvor_p("H-Marže 3Y", "gm3y", [15, 30, 45, 65, 999], [0, 5, 10, 15, 20])
-    p_nm = vytvor_p("Č-Marže", "nm", [8, 15, 25, 40, 999], [0, 5, 12, 18, 25])
-    p_nm3y = vytvor_p("Č-Marže 3Y", "nm3y", [8, 15, 25, 40, 999], [0, 5, 10, 15, 20])
-    p_roe = vytvor_p("ROE", "roe", [10, 20, 30, 50, 999], [0, 5, 10, 15, 20])
-    p_roe3y = vytvor_p("ROE 3Y", "roe3y", [10, 20, 30, 50, 999], [0, 5, 10, 15, 20])
-    p_rev = vytvor_p("Tržby y/y", "rev", [0, 8, 15, 30, 999], [-5, 5, 12, 18, 20])
-    p_eps = vytvor_p("Zisk y/y", "eps", [0, 8, 20, 40, 999], [-10, 5, 15, 22, 25])
-    p_deb = vytvor_p("Dluh D/E", "deb", [40, 90, 150, 250, 999], [15, 10, 0, -10, -25])
-    p_div = vytvor_p("Div. výnos", "div", [1.5, 3, 5, 7, 999], [2, 6, 10, 12, 8])
-    p_pay = vytvor_p("Payout", "pay", [30, 60, 80, 95, 999], [5, 10, 5, -5, -20])
-    p_pot = vytvor_p("Potenciál", "pot", [5, 15, 25, 40, 999], [0, 5, 15, 25, 30])
+    p_pe = vytvor_p("P/E", "pe", [12, 18, 25, 40, 999], [20, 15, 5, 0, -15])
+    p_ps = vytvor_p("P/S", "ps", [1.5, 3, 6, 10, 999], [15, 10, 5, 0, -10])
+    p_pb = vytvor_p("P/B", "pb", [1, 2.5, 4, 8, 999], [10, 7, 3, 0, -5])
+    p_pfcf = vytvor_p("P/FCF", "pfcf", [12, 20, 35, 50, 999], [20, 12, 5, 0, -10])
+    p_gm = vytvor_p("H-Marže", "gm", [20, 35, 50, 70, 999], [0, 8, 15, 20, 25])
+    p_gm3y = vytvor_p("H-Marže 3Y", "gm3y", [20, 35, 50, 70, 999], [0, 8, 15, 20, 25])
+    p_nm = vytvor_p("Č-Marže", "nm", [10, 20, 30, 45, 999], [0, 10, 18, 22, 30])
+    p_nm3y = vytvor_p("Č-Marže 3Y", "nm3y", [10, 20, 30, 45, 999], [0, 10, 18, 22, 30])
+    p_roe = vytvor_p("ROE", "roe", [12, 22, 35, 55, 999], [0, 10, 15, 20, 25])
+    p_roe3y = vytvor_p("ROE 3Y", "roe3y", [12, 22, 35, 55, 999], [0, 10, 15, 20, 25])
+    p_rev = vytvor_p("Tržby y/y", "rev", [0, 10, 20, 35, 999], [-10, 8, 15, 25, 35])
+    p_eps = vytvor_p("Zisk y/y", "eps", [0, 10, 25, 45, 999], [-15, 10, 20, 28, 40])
+    p_deb = vytvor_p("Dluh D/E", "deb", [40, 80, 120, 200, 999], [20, 10, 0, -15, -40])
+    p_div = vytvor_p("Div. výnos", "div", [2, 4, 6, 8, 999], [5, 12, 15, 10, 5])
+    p_pay = vytvor_p("Payout", "pay", [35, 55, 75, 90, 999], [10, 15, 5, -10, -25])
+    p_pot = vytvor_p("Potenciál", "pot", [8, 18, 28, 45, 999], [0, 10, 18, 25, 35])
 
 # --- 5. DATA FETCH ---
 @st.cache_data(ttl=3600)
@@ -126,7 +124,12 @@ raw_data = fetch_data(df_raw)
 m_rows, c_rows, today = [], [], date.today()
 mapping_keys = ["P/E", "P/S", "P/B", "P/FCF", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Payout", "Potenciál"]
 
+# Filtrování dat na základě pilla
+st.title("🚀 Investiční Matrix V82")
+filtr_kat = st.pills("Zobrazit pro:", ["Vše", "Portfolio", "Sledované"], default="Portfolio")
+
 for item in raw_data:
+    if filtr_kat != "Vše" and item["kat"] != filtr_kat: continue
     inf, t = item["inf"], item["t"]
     def g(k, m=1): return float(inf.get(k, 0)) * m if inf.get(k) is not None else 0
     
@@ -152,8 +155,7 @@ for item in raw_data:
             vw = w["v"] if k in ["P/E","P/S","P/B","P/FCF"] else (w["p"] if "Marže" in k or "ROE" in k else (w["g"] if k in ["Tržby y/y","Zisk y/y","Div. výnos","Potenciál"] else w["r"]))
             pts[k] = get_b(d[k], p_map) * vw
     else:
-        # Tovární (Balanced logikou pro demo)
-        pts = {k: get_b_direct(d[k], [20, 35], [15, 0]) for k in mapping_keys}
+        pts = {k: get_b_direct(d[k], [15, 25, 40], [15, 5, -10]) for k in mapping_keys}
 
     d["Score"] = sum(pts.values())
     m_rows.append(d)
@@ -161,29 +163,35 @@ for item in raw_data:
     # Kalendář
     ex_dt = datetime.fromtimestamp(inf.get('exDividendDate')).date() if inf.get('exDividendDate') else None
     rec = inf.get('recommendationKey', 'Nezadáno').replace('_', ' ').title()
-    c_rows.append({"Ticker": t, "Earnings": item["earn"], "Dní do": (pd.to_datetime(item["earn"], dayfirst=True).date() - today).days if pd.notnull(item["earn"]) else "-", "Dividenda": f"{g('dividendRate'):.2f} {inf.get('currency')}", "Ex-Date": ex_dt.strftime('%d.%m.%Y') if ex_dt else "-", "Analytické hodnocení": rec, "RSI": int(item['rsi']), "_rsi": item["rsi"], "_alert": [1 if pd.notnull(item["earn"]) and 0<=(pd.to_datetime(item["earn"], dayfirst=True).date()-today).days<=14 else 0, 1 if "Strong Buy" in rec else 0, 1 if ex_dt and 0<=(ex_dt-today).days<=10 else 0]})
+    c_rows.append({
+        "Ticker": t, "Earnings": item["earn"], 
+        "Dní do": (pd.to_datetime(item["earn"], dayfirst=True).date() - today).days if pd.notnull(item["earn"]) else "-", 
+        "Dividenda": f"{g('dividendRate'):.2f} {inf.get('currency')}", "Ex-Date": ex_dt.strftime('%d.%m.%Y') if ex_dt else "-", 
+        "Analytické hodnocení": rec, "RSI": int(item['rsi']), 
+        "_rsi": item["rsi"], 
+        "_alert": [1 if pd.notnull(item["earn"]) and 0<=(pd.to_datetime(item["earn"], dayfirst=True).date()-today).days<=14 else 0, 1 if "Strong Buy" in rec else 0, 1 if ex_dt and 0<=(ex_dt-today).days<=10 else 0]
+    })
 
-# --- 7. FILTROVÁNÍ A ZOBRAZENÍ MATRIXU ---
-st.title("🚀 Investiční Matrix V81")
-kat = st.pills("Kategorie:", ["Vše", "Portfolio", "Sledované"], default="Portfolio")
-
-df_final = pd.DataFrame([r for r in m_rows if kat == "Vše" or any(row['Kategorie'] == kat for idx, row in df_raw.iterrows() if row['Ticker'] == r['Ticker'])])
+# --- 7. ZOBRAZENÍ MATRIXU ---
+st.subheader(f"📊 {strategie} Matrix ({filtr_kat})")
+df_final = pd.DataFrame(m_rows)
 
 def style_cells(r):
     styles = [''] * len(r)
     for i, col in enumerate(r.index):
-        if col == "P/E" and r[col] > 40: styles[i] = 'background-color: #ffe5e5; color: #cc0000; font-weight: bold'
-        if col == "Dluh D/E" and r[col] > 200: styles[i] = 'background-color: #fff3cd; color: #856404; font-weight: bold'
-        if col == "Potenciál" and r[col] > 30: styles[i] = 'background-color: #d4edda; color: #155724; font-weight: bold'
+        # PŘÍSNĚJŠÍ FILTRY BAREV
+        if col == "P/E" and r[col] > 30: styles[i] = 'background-color: #ffe5e5; color: #cc0000; font-weight: bold'
+        if col == "Dluh D/E" and r[col] > 120: styles[i] = 'background-color: #fff3cd; color: #856404; font-weight: bold'
+        if col == "Potenciál" and r[col] > 20: styles[i] = 'background-color: #d4edda; color: #155724; font-weight: bold'
+        if col == "Tržby y/y" and r[col] < 0: styles[i] = 'background-color: #ffe5e5; color: #cc0000'
         if col in ["Cena", "Změna"]: styles[i] = f"color: {'#28a745' if r['Změna']>0 else '#dc3545'}; font-weight: bold"
     return styles
 
-st.subheader(f"📊 {strategie} Matrix")
 pct_cols = ["Změna", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Payout", "Potenciál"]
 st.dataframe(df_final.style.apply(style_cells, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn").format({c: "{:.1f}%" for c in pct_cols}, precision=1), use_container_width=True, hide_index=True, column_order=["Ticker", "Cena", "Změna"] + mapping_keys + ["Score"])
 
 # --- 8. KALENDÁŘ ---
-st.subheader("📅 Kalendář & Signály")
+st.subheader(f"📅 Kalendář & Signály ({filtr_kat})")
 df_c = pd.DataFrame(c_rows)
 st.dataframe(df_c.style.apply(lambda r: [
     'background-color: #ffc107' if i=='Dní do' and r['_alert'][0] else 
@@ -191,18 +199,16 @@ st.dataframe(df_c.style.apply(lambda r: [
     'background-color: #007bff; color: white' if i=='Ex-Date' and r['_alert'][2] else 
     'background-color: #ffe5e5; color: #cc0000; font-weight: bold' if i=='RSI' and r['_rsi']>70 else
     'background-color: #e5f9e5; color: #28a745; font-weight: bold' if i=='RSI' and r['_rsi']<30 else ''
-    for i in r.index], axis=1), use_container_width=True, hide_index=True)
+    for i in r.index], axis=1), use_container_width=True, hide_index=True, column_order=["Ticker", "Earnings", "Dní do", "Dividenda", "Ex-Date", "Analytické hodnocení", "RSI"])
 
-with st.expander("ℹ️ Vysvětlivky symbolů a barev"):
+with st.expander("ℹ️ Vysvětlivky zobrazení"):
     st.markdown("""
-    **V Matrixu:**
-    * 🟥 **Červené pozadí buňky:** Hodnota je v nezdravém pásmu (např. P/E > 40).
-    * 🟨 **Žluté pozadí buňky:** Zvýšené riziko (např. Dluh > 200%).
-    * 🟩 **Zelené pozadí buňky:** Výrazně pozitivní signál (např. Potenciál > 30%).
+    **Zpřísněná signalizace Matrixu:**
+    * 🟥 **Pozadí:** P/E > 30 nebo záporný růst tržeb.
+    * 🟨 **Pozadí:** Dluh D/E > 120 % (zvýšené riziko financování).
+    * 🟩 **Pozadí:** Potenciál k cílové ceně > 20 %.
     
-    **V Kalendáři:**
-    * **Analytické hodnocení:** Dlouhodobý výhled (12 měs.) – konsenzus bankovních analytiků.
-    * **RSI:** Krátkodobý technický signál (70+ překoupeno/prodej, 30- přeprodáno/nákup).
-    * 🟦 **Modrá:** Blížící se Ex-Dividend Date.
-    * 🟧 **Oranžová:** Brzké ohlášení hospodářských výsledků (Earnings).
+    **Vysvětlení Kalendáře:**
+    * **Analytické hodnocení:** Konsenzus trhu (12 měs.). **Strong Buy** je zvýrazněn zeleně.
+    * **RSI:** Technický signál. **70+ (Překoupeno)** je červený, **30- (Přeprodáno)** je zelený.
     """)
