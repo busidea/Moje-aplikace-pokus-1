@@ -4,9 +4,22 @@ import yfinance as yf
 from datetime import datetime, date
 import numpy as np
 
-st.set_page_config(page_title="Investiční Matrix V75", layout="wide")
+st.set_page_config(page_title="Investiční Matrix V76", layout="wide")
 
-# --- 1. NAČTENÍ SEZNAMU ---
+# --- 1. POMOCNÉ FUNKCE ---
+def get_b(val, pasma):
+    """Vrací body podle zadaných pásem (pro Vlastní nastavení)."""
+    for p in pasma:
+        if val <= p["h"]: return p["b"]
+    return pasma[-1]["b"]
+
+def get_b_direct(val, h_list, b_list):
+    """Vrací body podle seznamů (pro Tovární nastavení)."""
+    for h, b in zip(h_list, b_list):
+        if val <= h: return b
+    return b_list[-1]
+
+# --- 2. NAČTENÍ SEZNAMU ---
 ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
 
 @st.cache_data(ttl=300)
@@ -21,33 +34,15 @@ def nacti_seznam(odkaz):
 
 df_raw = nacti_seznam(ODKAZ_NA_TABULKU)
 
-# --- 2. STRATEGICKÝ PŘEPÍNAČ V SIDEBARU ---
-st.sidebar.header("🎯 Investiční Strategie")
+# --- 3. SIDEBAR: STRATEGIE ---
+st.sidebar.header("🎯 Strategické nastavení")
 strategie = st.sidebar.radio(
-    "Zvolte mód nastavení:",
+    "Zvolte mód analýzy:",
     ["Vlastní", "🛡️ Konzervativní", "🚀 Růstový", "⚖️ Vyvážený"],
-    index=0,
-    help="Tovární nastavení přepnou váhy a bodová pásma podle dané investiční filozofie."
+    index=3 # Defaultně Vyvážený
 )
 
-with st.sidebar.expander("📖 Popis vybrané strategie"):
-    if strategie == "Vlastní":
-        st.write("Máte plnou kontrolu nad každým parametrem níže.")
-    elif strategie == "🛡️ Konzervativní":
-        st.write("**Filozofie:** Priorita je ochrana kapitálu. Hledáme nízké P/E, nízký dluh a solidní dividendu. Vysoké valuace jsou penalizovány.")
-    elif strategie == "🚀 Růstový":
-        st.write("**Filozofie:** Priorita je dravost. Hledáme vysoký růst tržeb a zisků. Tolerujeme vysoké P/E i absenci dividendy.")
-    elif strategie == "⚖️ Vyvážený":
-        st.write("**Filozofie:** Rozumný kompromis. Hledáme kvalitní firmy s mírným růstem za férovou cenu.")
-
-# Pomocná funkce pro vracení bodů (pro tovární nastavení)
-def get_b_direct(val, pasma_h, pasma_b):
-    for h, b in zip(pasma_h, pasma_b):
-        if val <= h: return b
-    return pasma_b[-1]
-
-# --- 3. DEFINICE PARAMETRŮ (PODLE STRATEGIE) ---
-# Pokud je "Vlastní", zobrazíme klasické posuvníky a inputy
+# Definice vah a pásem podle strategie
 if strategie == "Vlastní":
     st.sidebar.divider()
     w_val = st.sidebar.slider("Váha: Valuace", 0.5, 3.0, 1.2)
@@ -65,86 +60,123 @@ if strategie == "Vlastní":
                 d.append({"h": h, "b": b})
             return d
 
-    # Výchozí analytické nastavení (jako v V74)
     p_pe = vytvor_p("P/E", "pe", [15, 20, 30, 45, 999], [15, 10, 5, 0, -10])
-    p_pfcf = vytvor_p("P/FCF", "pfcf", [15, 22, 35, 50, 999], [15, 10, 5, 0, -10])
     p_nm = vytvor_p("Č-Marže", "nm", [8, 15, 25, 40, 999], [0, 5, 12, 18, 25])
     p_rev = vytvor_p("Tržby y/y", "rev", [0, 8, 15, 30, 999], [-5, 5, 12, 18, 20])
     p_deb = vytvor_p("Dluh D/E", "deb", [40, 90, 150, 250, 999], [15, 10, 0, -10, -25])
+    p_div = vytvor_p("Div. výnos", "div", [1.5, 3, 5, 7, 999], [2, 6, 10, 12, 8])
     p_pot = vytvor_p("Potenciál", "pot", [5, 15, 25, 40, 999], [0, 5, 15, 25, 30])
-    # Ostatní parametry by se definovaly podobně...
+else:
+    # Tovární nastavení "napevno"
+    if strategie == "🛡️ Konzervativní":
+        weights = {"val": 2.0, "prof": 1.5, "grow": 0.5, "risk": 2.0}
+    elif strategie == "🚀 Růstový":
+        weights = {"val": 0.5, "prof": 1.2, "grow": 2.5, "risk": 0.8}
+    else: # Vyvážený
+        weights = {"val": 1.2, "grow": 1.2, "prof": 1.5, "risk": 1.5}
 
-# --- 4. VÝPOČETNÍ JÁDRO ---
+# --- 4. DATA FETCH ---
 @st.cache_data(ttl=3600)
-def fetch_v75(df_input):
+def fetch_v76(df_input):
     if df_input.empty: return []
-    results, today = [], date.today()
+    res, today = [], date.today()
     for row in df_input.to_dict('records'):
         t = str(row.get('Ticker', '')).strip().upper()
         try:
-            tick = yf.Ticker(t)
-            inf = tick.info
-            hist = tick.history(period="1mo")
+            tk = yf.Ticker(t); inf = tk.info; hi = tk.history(period="1mo")
             rsi = 50
-            if len(hist) > 14:
-                delta = hist['Close'].diff(); gain = delta.where(delta > 0, 0).rolling(14).mean(); loss = -delta.where(delta < 0, 0).rolling(14).mean()
-                rsi = 100 - (100 / (1 + (gain / loss).iloc[-1]))
-            results.append({"ticker": t, "info": inf, "rsi": rsi, "kat": row.get('Kategorie', 'Vše'), "earn": row.get('Earnings Day')})
+            if len(hi) > 14:
+                d = hi['Close'].diff(); g = d.where(d > 0, 0).rolling(14).mean(); l = -d.where(d < 0, 0).rolling(14).mean()
+                rsi = 100 - (100 / (1 + (g/l).iloc[-1]))
+            res.append({"t": t, "inf": inf, "rsi": rsi, "kat": row.get('Kategorie'), "earn": row.get('Earnings Day')})
         except: continue
-    return results
+    return res
 
-raw_data_all = fetch_v75(df_raw)
-filtr_kat = st.sidebar.selectbox("Kategorie:", ["Vše", "Portfolio", "Sledované"], index=1)
+raw_data = fetch_v76(df_raw)
+filtr_kat = st.sidebar.selectbox("Filtrovat:", ["Vše", "Portfolio", "Sledované"], index=1)
 show_audit = st.sidebar.checkbox("Zobrazit body (Audit)", value=False)
 
-# --- 5. APLIKACE STRATEGIE NA DATA ---
-m_rows, c_rows = [], []
-for item in raw_data_all:
+# --- 5. VÝPOČET SCORE ---
+m_rows, c_rows, today = [], [], date.today()
+for item in raw_data:
     if filtr_kat != "Vše" and item["kat"] != filtr_kat: continue
-    inf, t = item["info"], item["ticker"]
+    inf, t = item["inf"], item["t"]
     def g(k, m=1): return float(inf.get(k, 0)) * m if inf.get(k) is not None else 0
     
-    # Data Tickeru
     d = {
         "Ticker": t, "Cena": g("currentPrice"), "Změna": ((g("currentPrice")/g("previousClose", 1))-1)*100,
         "P/E": g("trailingPE") or g("forwardPE"), "Č-Marže": g("profitMargins", 100),
         "Tržby y/y": g("revenueGrowth", 100), "Dluh D/E": g("debtToEquity"),
-        "Potenciál": ((g("targetMeanPrice")/g("currentPrice", 1))-1)*100 if g("targetMeanPrice")>0 else 0, "Type": "Val"
+        "Div. výnos": g("dividendYield", 100), "Potenciál": ((g("targetMeanPrice")/g("currentPrice", 1))-1)*100 if g("targetMeanPrice")>0 else 0,
+        "Type": "Val"
     }
 
-    # BODOVÁNÍ PODLE STRATEGIE
-    if strategie == "🛡️ Konzervativní":
-        w_v, w_p, w_g, w_r = 2.0, 1.5, 0.5, 2.0
-        b_pe = get_b_direct(d["P/E"], [12, 18, 25, 35, 999], [20, 10, 0, -10, -30])
-        b_nm = get_b_direct(d["Č-Marže"], [5, 10, 15, 25, 999], [0, 5, 10, 20, 30])
-        b_rev = get_b_direct(d["Tržby y/y"], [2, 5, 10, 15, 999], [0, 5, 10, 15, 20])
-        b_deb = get_b_direct(d["Dluh D/E"], [30, 60, 100, 150, 999], [25, 15, 0, -20, -50])
-    elif strategie == "🚀 Růstový":
-        w_v, w_p, w_g, w_r = 0.5, 1.0, 2.5, 1.0
-        b_pe = get_b_direct(d["P/E"], [25, 35, 45, 60, 999], [10, 5, 0, -5, -15])
-        b_nm = get_b_direct(d["Č-Marže"], [5, 12, 20, 30, 999], [0, 5, 10, 15, 20])
-        b_rev = get_b_direct(d["Tržby y/y"], [10, 20, 40, 60, 999], [0, 10, 20, 30, 40])
-        b_deb = get_b_direct(d["Dluh D/E"], [100, 200, 300, 400, 999], [10, 5, 0, -10, -20])
-    elif strategie == "⚖️ Vyvážený":
-        w_v, w_p, w_g, w_r = 1.2, 1.5, 1.2, 1.5
-        b_pe = get_b_direct(d["P/E"], [15, 22, 30, 40, 999], [15, 10, 5, 0, -10])
-        b_nm = get_b_direct(d["Č-Marže"], [8, 15, 25, 35, 999], [0, 8, 15, 20, 25])
-        b_rev = get_b_direct(d["Tržby y/y"], [5, 12, 20, 35, 999], [0, 8, 15, 22, 28])
-        b_deb = get_b_direct(d["Dluh D/E"], [50, 100, 150, 200, 999], [15, 10, 0, -10, -25])
-    else: # Vlastní
-        w_v, w_p, w_g, w_r = w_val, w_prof, w_growth, w_risk
-        # (Zde by se použily hodnoty z manuálních inputů - pro stručnost zkráceno)
-        b_pe = get_b(d["P/E"], p_pe); b_nm = get_b(d["Č-Marže"], p_nm)
-        b_rev = get_b(d["Tržby y/y"], p_rev); b_deb = get_b(d["Dluh D/E"], p_deb)
+    # Aplikace bodování podle zvolené strategie
+    if strategie == "Vlastní":
+        w = {"v": w_val, "p": w_prof, "g": w_growth, "r": w_risk}
+        pts = {
+            "P/E": get_b(d["P/E"], p_pe)*w["v"], "Č-Marže": get_b(d["Č-Marže"], p_nm)*w["p"],
+            "Tržby y/y": get_b(d["Tržby y/y"], p_rev)*w["g"], "Dluh D/E": get_b(d["Dluh D/E"], p_deb)*w["r"],
+            "Div. výnos": get_b(d["Div. výnos"], p_div)*w["g"], "Potenciál": get_b(d["Potenciál"], p_pot)*w["g"]
+        }
+    else:
+        w = {"v": weights["val"], "p": weights["prof"], "g": weights["grow"], "r": weights["risk"]}
+        if strategie == "🛡️ Konzervativní":
+            pts = {
+                "P/E": get_b_direct(d["P/E"], [12, 18, 25, 35], [20, 10, 0, -20])*w["v"],
+                "Č-Marže": get_b_direct(d["Č-Marže"], [5, 10, 15, 25], [0, 5, 10, 20])*w["p"],
+                "Tržby y/y": get_b_direct(d["Tržby y/y"], [2, 5, 10, 15], [0, 5, 10, 15])*w["g"],
+                "Dluh D/E": get_b_direct(d["Dluh D/E"], [30, 60, 100, 150], [25, 15, 0, -30])*w["r"],
+                "Div. výnos": get_b_direct(d["Div. výnos"], [1, 3, 5, 7], [0, 10, 15, 5])*w["g"],
+                "Potenciál": get_b_direct(d["Potenciál"], [5, 15, 25, 40], [0, 5, 10, 15])*w["g"]
+            }
+        elif strategie == "🚀 Růstový":
+            pts = {
+                "P/E": get_b_direct(d["P/E"], [25, 35, 45, 60], [10, 5, 0, -10])*w["v"],
+                "Č-Marže": get_b_direct(d["Č-Marže"], [10, 20, 30, 40], [0, 10, 20, 30])*w["p"],
+                "Tržby y/y": get_b_direct(d["Tržby y/y"], [10, 25, 45, 70], [0, 15, 30, 50])*w["g"],
+                "Dluh D/E": get_b_direct(d["Dluh D/E"], [100, 200, 300, 400], [10, 5, 0, -10])*w["r"],
+                "Div. výnos": 0, # Růstového investora dividenda nezajímá
+                "Potenciál": get_b_direct(d["Potenciál"], [10, 25, 40, 60], [0, 10, 25, 40])*w["g"]
+            }
+        else: # Vyvážený
+            pts = {
+                "P/E": get_b_direct(d["P/E"], [15, 22, 30, 45], [15, 10, 5, -10])*w["v"],
+                "Č-Marže": get_b_direct(d["Č-Marže"], [8, 15, 25, 35], [0, 8, 15, 25])*w["p"],
+                "Tržby y/y": get_b_direct(d["Tržby y/y"], [5, 12, 25, 40], [0, 10, 20, 30])*w["g"],
+                "Dluh D/E": get_b_direct(d["Dluh D/E"], [50, 100, 150, 250], [15, 10, 0, -20])*w["r"],
+                "Div. výnos": get_b_direct(d["Div. výnos"], [1, 3, 5, 7], [2, 7, 10, 5])*w["g"],
+                "Potenciál": get_b_direct(d["Potenciál"], [5, 15, 30, 50], [0, 10, 20, 30])*w["g"]
+            }
 
-    pts = {"P/E": b_pe * w_v, "Č-Marže": b_nm * w_p, "Tržby y/y": b_rev * w_g, "Dluh D/E": b_deb * w_r}
     d["Score"] = sum(pts.values())
     m_rows.append(d)
     if show_audit:
-        a_row = {k: pts.get(k, 0) for k in pts}; a_row.update({"Ticker": "└─ body", "Score": d["Score"], "Type": "Pts"})
-        m_rows.append(a_row)
+        a = {k: pts.get(k, 0) for k in pts}; a.update({"Ticker": "└─ body", "Score": d["Score"], "Type": "Pts"})
+        m_rows.append(a)
 
-# --- ZOBRAZENÍ TABULEK ---
-st.subheader(f"📊 {strategie} Matrix ({filtr_kat})")
+    # Kalendář Row
+    ex_dt = datetime.fromtimestamp(inf.get('exDividendDate')).date() if inf.get('exDividendDate') else None
+    rec = inf.get('recommendationKey', 'Nezadáno').replace('_', ' ').title()
+    c_rows.append({
+        "Ticker": t, "Earnings": item["earn"], "Dní do": (pd.to_datetime(item["earn"], dayfirst=True).date() - today).days if pd.notnull(item["earn"]) else "-",
+        "Dividenda": f"{g('dividendRate'):.2f} {inf.get('currency')}", "Ex-Date": ex_dt.strftime('%d.%m.%Y') if ex_dt else "-",
+        "Analytické hodnocení": f"📢 {rec}", "RSI": f"{int(item['rsi'])}", "_rsi": item["rsi"],
+        "_alert_earn": 1 if pd.notnull(item["earn"]) and 0 <= (pd.to_datetime(item["earn"], dayfirst=True).date() - today).days <= 14 else 0,
+        "_alert_buy": 1 if "Strong Buy" in rec else 0, "_alert_ex": 1 if ex_dt and 0 <= (ex_dt - today).days <= 10 else 0
+    })
+
+# --- 6. ZOBRAZENÍ ---
+st.subheader(f"📊 {strategie} Matrix")
 df_m = pd.DataFrame(m_rows)
-st.dataframe(df_m.style.apply(lambda row: ['background-color: #f8f9fa; color: #adb5bd' if row["Type"]=="Pts" else '' for _ in row], axis=1).background_gradient(subset=["Score"], cmap="RdYlGn"), use_container_width=True, hide_index=True)
+st.dataframe(df_m.style.apply(lambda r: ['background-color: #f8f9fa; color: #adb5bd' if r["Type"]=="Pts" else '' for _ in r], axis=1).background_gradient(subset=["Score"], cmap="RdYlGn").format("{:.1f}%", subset=["Změna", "Č-Marže", "Tržby y/y", "Div. výnos", "Potenciál"]), use_container_width=True, hide_index=True)
+
+st.subheader("📅 Kalendář")
+df_c = pd.DataFrame(c_rows)
+st.dataframe(df_c.style.apply(lambda r: [
+    'background-color: #ffc107' if i=='Dní do' and r['_alert_earn'] else 
+    'background-color: #28a745; color: white' if i=='Analytické hodnocení' and r['_alert_buy'] else
+    'background-color: #007bff; color: white' if i=='Ex-Date' and r['_alert_ex'] else 
+    'background-color: #ffe5e5' if i=='RSI' and r['_rsi']>70 else
+    'background-color: #e5f9e5' if i=='RSI' and r['_rsi']<30 else ''
+    for i in r.index], axis=1), use_container_width=True, hide_index=True, column_order=["Ticker", "Earnings", "Dní do", "Dividenda", "Ex-Date", "Analytické hodnocení", "RSI"])
