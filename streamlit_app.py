@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 
-st.set_page_config(page_title="Investiční Matrix V41.1", layout="wide")
+st.set_page_config(page_title="Investiční Matrix V42", layout="wide")
 
 ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
 
@@ -17,10 +17,10 @@ def nacti_seznam_akcii(odkaz):
 
 moje_databaze = nacti_seznam_akcii(ODKAZ_NA_TABULKU)
 
-st.title("🏛️ Investiční Matrix V41.1")
+st.title("🏛️ Investiční Matrix V42")
 
-# --- SIDEBAR ---
-st.sidebar.header("⚖️ Globální Váhy")
+# --- SIDEBAR: ČISTÝ A FUNKČNÍ ---
+st.sidebar.header("⚖️ Nastavení vah")
 w_val = st.sidebar.slider("Váha: Valuace", 0.5, 3.0, 1.0, 0.1)
 w_prof = st.sidebar.slider("Váha: Rentabilita", 0.5, 3.0, 1.0, 0.1)
 w_growth = st.sidebar.slider("Váha: Růst", 0.5, 3.0, 1.0, 0.1)
@@ -28,7 +28,7 @@ w_risk = st.sidebar.slider("Váha: Riziko", 0.5, 3.0, 1.5, 0.1)
 
 st.sidebar.markdown("---")
 show_audit = st.sidebar.checkbox("Zobrazit bodové řádky (Audit)", value=True)
-show_hist = st.sidebar.checkbox("Zobrazit 3Y průměry", value=True)
+hide_market = st.sidebar.checkbox("Skrýt tržní údaje (Cena, %)", value=False)
 
 def vytvor_p(nazev, zk, def_h, def_b):
     with st.sidebar.expander(f"📊 {nazev}", expanded=False):
@@ -40,7 +40,7 @@ def vytvor_p(nazev, zk, def_h, def_b):
             d.append({"h": h, "b": b})
         return d
 
-# Načtení všech 16 bodovacích pásem
+# --- 16 UKAZATELŮ (Všechna pásma v sidebaru) ---
 p_pe = vytvor_p("P/E", "pe", [15, 25, 35, 50, 999], [15, 10, 5, 0, -5])
 p_ps = vytvor_p("P/S", "ps", [2, 5, 8, 12, 999], [10, 7, 3, 0, -5])
 p_pb = vytvor_p("P/B", "pb", [1, 3, 5, 10, 999], [10, 5, 2, 0, -2])
@@ -64,7 +64,7 @@ def get_b(val, pasma):
     return pasma[-1]["b"]
 
 @st.cache_data(ttl=3600)
-def fetch_data(db):
+def fetch_data(db, s_audit):
     res = []
     tickery = list(db.keys())
     pb = st.progress(0)
@@ -78,9 +78,9 @@ def fetch_data(db):
                 "Ticker": t, "Cena": g("currentPrice"), "Změna %": ((g("currentPrice")/g("previousClose"))-1)*100 if g("previousClose")>0 else 0,
                 "P/E": g("trailingPE") if g("trailingPE")!=0 else g("forwardPE"), "P/S": g("priceToSalesTrailing12Months"), 
                 "P/B": g("priceToBook"), "P/FCF": g("marketCap")/g("freeCashflow") if g("freeCashflow")!=0 else 0,
-                "GM": g("grossMargins", 100), "GM3Y": g("grossMargins", 94),
-                "NM": g("profitMargins", 100), "NM3Y": g("profitMargins", 91),
-                "ROE": g("returnOnEquity", 100), "ROE3Y": g("returnOnEquity", 93),
+                "Hrubá marže": g("grossMargins", 100), "Hrubá marže 3Y": g("grossMargins", 94),
+                "Čistá marže": g("profitMargins", 100), "Čistá marže 3Y": g("profitMargins", 91),
+                "ROE": g("returnOnEquity", 100), "ROE 3Y": g("returnOnEquity", 93),
                 "Růst tržeb": g("revenueGrowth", 100), "Růst zisku": g("earningsGrowth", 100),
                 "Dluh D/E": g("debtToEquity"), "Div. výnos": g("dividendYield", 100), "Výpl. poměr": g("payoutRatio", 100),
                 "Potenciál": ((g("targetMeanPrice")/g("currentPrice", 1))-1)*100 if g("targetMeanPrice")>0 else 0
@@ -88,37 +88,38 @@ def fetch_data(db):
             
             pts = {
                 "P/E": get_b(d["P/E"], p_pe)*w_val, "P/S": get_b(d["P/S"], p_ps)*w_val, "P/B": get_b(d["P/B"], p_pb)*w_val, "P/FCF": get_b(d["P/FCF"], p_pfcf)*w_val,
-                "GM": get_b(d["GM"], p_gm)*w_prof, "GM3Y": get_b(d["GM3Y"], p_gm3y)*w_prof, "NM": get_b(d["NM"], p_nm)*w_prof, "NM3Y": get_b(d["NM3Y"], p_nm3y)*w_prof,
-                "ROE": get_b(d["ROE"], p_roe)*w_prof, "ROE3Y": get_b(d["ROE3Y"], p_roe3y)*w_prof,
+                "Hrubá marže": get_b(d["Hrubá marže"], p_gm)*w_prof, "Hrubá marže 3Y": get_b(d["Hrubá marže 3Y"], p_gm3y)*w_prof,
+                "Čistá marže": get_b(d["Čistá marže"], p_nm)*w_prof, "Čistá marže 3Y": get_b(d["Čistá marže 3Y"], p_nm3y)*w_prof,
+                "ROE": get_b(d["ROE"], p_roe)*w_prof, "ROE 3Y": get_b(d["ROE 3Y"], p_roe3y)*w_prof,
                 "Růst tržeb": get_b(d["Růst tržeb"], p_rev)*w_growth, "Růst zisku": get_b(d["Růst zisku"], p_eps)*w_growth,
                 "Div. výnos": get_b(d["Div. výnos"], p_div)*w_growth, "Potenciál": get_b(d["Potenciál"], p_pot)*w_growth,
                 "Dluh D/E": get_b(d["Dluh D/E"], p_deb)*w_risk, "Výpl. poměr": get_b(d["Výpl. poměr"], p_pay)*w_risk
             }
             total_score = sum(pts.values())
             res.append({**d, "Score": total_score, "RowType": "Val", "SortKey": total_score})
-            if show_audit:
-                audit_row = {k: pts.get(k, 0) for k in d.keys() if k in pts}
-                audit_row.update({"Ticker": "└─ pts", "Score": total_score, "RowType": "Pts", "SortKey": total_score - 0.0001})
-                res.append(audit_row)
+            
+            if s_audit:
+                a_row = {k: pts.get(k, 0) for k in d.keys() if k in pts}
+                a_row.update({"Ticker": "└─ pts", "Score": total_score, "RowType": "Pts", "SortKey": total_score - 0.0001})
+                res.append(a_row)
         except: continue
         pb.progress((idx+1)/len(tickery))
     return pd.DataFrame(res)
 
-df_raw = fetch_data(moje_databaze)
+# Předáváme show_audit do funkce, aby se při změně znovu načetla data
+df_raw = fetch_data(moje_databaze, show_audit)
 
 if not df_raw.empty:
     df_raw = df_raw.sort_values("SortKey", ascending=False)
     
-    # Sloupce pro zobrazení
-    disp_cols = ["Ticker", "Cena", "P/E", "P/FCF", "GM", "GM3Y", "NM", "NM3Y", "ROE", "ROE3Y", "Růst tržeb", "Dluh D/E", "Div. výnos", "Potenciál", "Score"]
-    if not show_hist:
-        disp_cols = [c for c in disp_cols if "3Y" not in c]
+    # Skladba sloupců (párování marží a ROE)
+    disp_cols = ["Ticker"]
+    if not hide_market: disp_cols += ["Cena", "Změna %"]
+    disp_cols += ["P/E", "P/FCF", "Hrubá marže", "Hrubá marže 3Y", "Čistá marže", "Čistá marže 3Y", "ROE", "ROE 3Y", "Růst tržeb", "Dluh D/E", "Div. výnos", "Potenciál", "Score"]
     
-    # Nejdříve připravíme tabulku VČETNĚ RowType pro barvení
-    # Ale uživateli ukážeme jen vybrané sloupce pomocí column_order
     def style_rows(row):
         if row["RowType"] == "Pts":
-            return ['background-color: #f1f3f5; color: #868e96; font-style: italic'] * len(row)
+            return ['background-color: #f1f3f5; color: #adb5bd; font-style: italic'] * len(row)
         return [''] * len(row)
 
     st.dataframe(
@@ -128,5 +129,5 @@ if not df_raw.empty:
         use_container_width=True, 
         height=900, 
         hide_index=True,
-        column_order=disp_cols # TADY se definuje, co uživatel uvidí (RowType zůstane skrytý)
+        column_order=disp_cols
     )
