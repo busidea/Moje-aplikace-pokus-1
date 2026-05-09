@@ -179,24 +179,34 @@ for item in raw_data:
 st.subheader(f"📊 {strategie} Matrix ({filtr_kat})")
 df_final = pd.DataFrame(m_rows)
 
-def style_cells(r):
-    styles = [''] * len(r)
-    for i, col in enumerate(r.index):
-        if col == "P/E" and r[col] > 30: styles[i] = 'background-color: #ffe5e5; color: #cc0000; font-weight: bold'
-        if col == "Dluh D/E" and r[col] > 120: styles[i] = 'background-color: #fff3cd; color: #856404; font-weight: bold'
-        if col == "Potenciál" and r[col] > 20: styles[i] = 'background-color: #d4edda; color: #155724; font-weight: bold'
-        if col == "Tržby y/y" and r[col] < 0: styles[i] = 'background-color: #ffe5e5; color: #cc0000'
-        if col in ["Cena", "Změna"]: styles[i] = f"color: {'#28a745' if r['Změna']>0 else '#dc3545'}; font-weight: bold"
-    return styles
+if df_final.empty:
+    st.warning(f"V kategorii '{filtr_kat}' nebyly nalezeny žádné tituly. Zkontrolujte Google Sheet.")
+else:
+    def style_cells(r):
+        styles = [''] * len(r)
+        for i, col in enumerate(r.index):
+            # PODBARVENÍ POZADÍ (Písmo zůstává černé dle tvého přání)
+            if col == "P/E" and r[col] > 30: styles[i] = 'background-color: #ffe5e5;'
+            if col == "Dluh D/E" and r[col] > 120: styles[i] = 'background-color: #fff3cd;'
+            if col == "Potenciál" and r[col] > 20: styles[i] = 'background-color: #d4edda;'
+            if col == "Tržby y/y" and r[col] < 0: styles[i] = 'background-color: #ffe5e5;'
+            
+            # Cena a změna barvu písma mají, protože to jsou tržní data, ne "varování"
+            if col in ["Cena", "Změna"]: 
+                styles[i] = f"color: {'#28a745' if r['Změna']>0 else '#dc3545'}; font-weight: bold"
+        return styles
 
-pct_cols = ["Změna", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Payout", "Potenciál"]
-st.dataframe(
-    df_final.style.apply(style_cells, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn").format({c: "{:.1f}%" for c in pct_cols}, precision=1), 
-    use_container_width=True, 
-    hide_index=True, 
-    height=800, # FIXNÍ VÝŠKA PRO 21 ŘÁDKŮ
-    column_order=["Ticker", "Cena", "Změna"] + mapping_keys + ["Score"]
-)
+    pct_cols = ["Změna", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Payout", "Potenciál"]
+    
+    st.dataframe(
+        df_final.style.apply(style_cells, axis=1)
+        .background_gradient(subset=["Score"], cmap="RdYlGn") # Tady to padalo
+        .format({c: "{:.1f}%" for c in pct_cols}, precision=1), 
+        use_container_width=True, 
+        hide_index=True, 
+        height=800, 
+        column_order=["Ticker", "Cena", "Změna"] + mapping_keys + ["Score"]
+    )
 
 # --- 8. KALENDÁŘ ---
 st.subheader(f"📅 Kalendář & Signály ({filtr_kat})")
