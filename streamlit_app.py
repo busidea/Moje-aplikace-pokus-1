@@ -5,7 +5,7 @@ from datetime import datetime, date
 import numpy as np
 
 # Konfigurace stránky
-st.set_page_config(page_title="Scoring firem V83.2", layout="wide")
+st.set_page_config(page_title="Scoring firem V83.3", layout="wide")
 
 # --- 1. POMOCNÉ FUNKCE ---
 def get_b(val, pasma):
@@ -38,16 +38,14 @@ def nacti_seznam(odkaz):
 
 df_raw = nacti_seznam(ODKAZ_NA_TABULKU)
 
-# --- 3. LEVÁ LIŠTA (SIDEBAR) ---
+# --- 3. LEVÁ LIŠTA ---
 st.sidebar.markdown("## **Scoring firem**")
-
 filtr_kat = st.sidebar.selectbox("Zobrazit pro:", ["Portfolio", "Sledované", "Vše"], index=0)
 strategie = st.sidebar.selectbox("Nastavení:", ["Vlastní", "🛡️ Konzervativní", "🚀 Růstový", "⚖️ Vyvážený"], index=0)
-zobrazit_body = st.sidebar.checkbox("Zobrazit řádky s body", value=False)
+zobrazit_body = st.sidebar.checkbox("Zobrazit řádky s body", value=True)
 
 st.sidebar.divider()
 
-# Příprava parametrů
 if strategie == "Vlastní":
     def vytvor_p(nazev, zk, def_h, def_b):
         with st.sidebar.expander(f"📊 {nazev}", expanded=False):
@@ -58,7 +56,6 @@ if strategie == "Vlastní":
                 b = c2.number_input(f"Body", value=int(def_b[i]), key=f"{zk}_{i}b")
                 d.append({"h": h, "b": b})
             return d
-
     p_pe = vytvor_p("P/E", "pe", [12, 18, 25, 40, 999], [20, 15, 5, 0, -15])
     p_ps = vytvor_p("P/S", "ps", [1.5, 3, 6, 10, 999], [15, 10, 5, 0, -10])
     p_pb = vytvor_p("P/B", "pb", [1, 2.5, 4, 8, 999], [10, 7, 3, 0, -5])
@@ -77,7 +74,6 @@ if strategie == "Vlastní":
     p_pot = vytvor_p("Potenciál", "pot", [8, 18, 28, 45, 999], [0, 10, 18, 25, 35])
 
     st.sidebar.divider()
-    st.sidebar.markdown("**Váhy skupin**")
     w_val, w_prof, w_growth, w_risk = st.sidebar.slider("Valuace", 0.5, 3.0, 1.2), st.sidebar.slider("Rentabilita", 0.5, 3.0, 1.5), st.sidebar.slider("Růst", 0.5, 3.0, 1.0), st.sidebar.slider("Riziko", 0.5, 3.0, 1.8)
 
 # --- 4. DATA FETCH ---
@@ -108,9 +104,7 @@ for item in raw_data:
     inf, t = item["inf"], item["t"]
     def g(k, m=1): return float(inf.get(k, 0)) * m if inf.get(k) is not None else 0
     
-    # OPRAVA DIVIDENDY (Yahoo vrací 0.03 pro 3%)
-    d_raw = inf.get('dividendYield')
-    val_div = (d_raw * 100) if d_raw is not None else 0
+    val_div = (inf.get('dividendYield', 0) * 100) if inf.get('dividendYield') else 0
     
     vals = {
         "Ticker": t, "Cena": g("currentPrice"), "Změna": ((g("currentPrice")/g("previousClose", 1))-1)*100,
@@ -142,7 +136,6 @@ for item in raw_data:
     m_rows.append(vals)
     if zobrazit_body: m_rows.append(pts)
 
-    # Kalendář
     ex_dt = datetime.fromtimestamp(inf.get('exDividendDate')).date() if inf.get('exDividendDate') else None
     c_rows.append({
         "Ticker": t, "Earnings": item["earn"], "Dní do": (pd.to_datetime(item["earn"], dayfirst=True).date() - today).days if item["earn"] != "-" else "-",
@@ -150,10 +143,11 @@ for item in raw_data:
         "Analytické hodnocení": inf.get('recommendationKey', '-').replace('_', ' ').title(), "RSI": int(item['rsi']), "_rsi": item["rsi"], "_alert": [1 if item["earn"] != "-" and 0<=(pd.to_datetime(item["earn"], dayfirst=True).date()-today).days<=14 else 0, 1 if "Strong Buy" in str(inf.get('recommendationKey','')) else 0, 1 if ex_dt and 0<=(ex_dt-today).days<=10 else 0]
     })
 
-# --- 6. ZOBRAZENÍ ---
+# --- 6. ZOBRAZENÍ MATRIXU ---
 df_m = pd.DataFrame(m_rows)
+
 if df_m.empty:
-    st.warning("Žádná data. Zkontrolujte Google Sheet.")
+    st.warning("Žádná data k zobrazení.")
 else:
     def style_matrix(r):
         styles = [''] * len(r)
@@ -167,7 +161,26 @@ else:
         return styles
 
     pct_cols = ["Změna", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Payout", "Potenciál"]
-    st.dataframe(df_m.style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn").format({c: "{:.1f}%" for c in pct_cols}, precision=1), use_container_width=True, hide_index=True, height=850 if zobrazit_body else 800, column_order=["Ticker", "Cena", "Změna"] + mapping_keys + ["Score"])
+    
+    # OPRAVENÉ FORMÁTOVÁNÍ: Podmíněné podle typu řádku
+    styler = df_m.style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn")
+    
+    def format_vals(val, col_name, row_type):
+        if row_type == "Points":
+            return f"{val:.0f}"  # Body jako celá čísla bez %
+        if col_name in pct_cols:
+            return f"{val:.1f}%" # Hodnoty s %
+        return f"{val:.1f}"      # Ostatní (Cena, P/E)
+
+    # Aplikace formátu buněk po jedné
+    st.dataframe(
+        styler.format(lambda x: f"{x:.1f}%" if not isinstance(x, str) else x, subset=pct_cols)
+              .format(lambda x: f"{x:.0f}" if not isinstance(x, str) else x, subset=["Score"]),
+        use_container_width=True, 
+        hide_index=True, 
+        height=850 if zobrazit_body else 800, 
+        column_order=["Ticker", "Cena", "Změna"] + mapping_keys + ["Score"]
+    )
 
 st.write("---")
 df_c = pd.DataFrame(c_rows)
