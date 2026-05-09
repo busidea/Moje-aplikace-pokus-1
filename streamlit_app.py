@@ -4,8 +4,8 @@ import yfinance as yf
 from datetime import datetime, date
 import numpy as np
 
-# Konfigurace
-st.set_page_config(page_title="Investiční Matrix V82.4", layout="wide")
+# Konfigurace stránky
+st.set_page_config(page_title="Scoring firem V83", layout="wide")
 
 # --- 1. POMOCNÉ FUNKCE ---
 def get_b(val, pasma):
@@ -26,7 +26,6 @@ def nacti_seznam(odkaz):
     try:
         csv_url = odkaz.replace('/edit?usp=sharing', '/export?format=csv')
         df = pd.read_csv(csv_url)
-        # Vyčištění názvů sloupců a obsahu od mezer
         df.columns = [c.strip() for c in df.columns]
         for col in df.columns:
             if df[col].dtype == 'object':
@@ -38,22 +37,31 @@ def nacti_seznam(odkaz):
 
 df_raw = nacti_seznam(ODKAZ_NA_TABULKU)
 
-# --- 3. SIDEBAR ---
-st.sidebar.header("🎯 Analytický Mód")
-strategie = st.sidebar.radio(
-    "Zvolte strategii:",
-    ["Vlastní", "🛡️ Konzervativní", "🚀 Růstový", "⚖️ Vyvážený"],
-    index=0 # Výchozí: Vlastní
+# --- 3. LEVÁ LIŠTA (SIDEBAR) ---
+st.sidebar.markdown("## **Scoring firem**")
+
+# Ovladač filtru (Původně pills v hlavní ploše)
+filtr_kat = st.sidebar.selectbox(
+    "Zobrazit pro:",
+    ["Portfolio", "Sledované", "Vše"],
+    index=0
 )
 
-# --- 4. OVLADAČE PRO VLASTNÍ (16 EXPANDERŮ) ---
-if strategie == "Vlastní":
-    st.sidebar.divider()
-    w_val = st.sidebar.slider("Váha: Valuace", 0.5, 3.0, 1.2)
-    w_prof = st.sidebar.slider("Váha: Rentabilita", 0.5, 3.0, 1.5)
-    w_growth = st.sidebar.slider("Váha: Růst", 0.5, 3.0, 1.0)
-    w_risk = st.sidebar.slider("Váha: Riziko", 0.5, 3.0, 1.8)
+# Ovladač strategie
+strategie = st.sidebar.selectbox(
+    "Nastavení:",
+    ["Vlastní", "🛡️ Konzervativní", "🚀 Růstový", "⚖️ Vyvážený"],
+    index=0
+)
 
+st.sidebar.divider()
+
+# Logika pro definici parametrů (musí být před výpočtem)
+p_pe = p_ps = p_pb = p_pfcf = p_gm = p_gm3y = p_nm = p_nm3y = p_roe = p_roe3y = p_rev = p_eps = p_deb = p_div = p_pay = p_pot = []
+w_val = w_prof = w_growth = w_risk = 1.0
+
+if strategie == "Vlastní":
+    # 16 ovladačů ukazatelů
     def vytvor_p(nazev, zk, def_h, def_b):
         with st.sidebar.expander(f"📊 {nazev}", expanded=False):
             d = []
@@ -81,7 +89,15 @@ if strategie == "Vlastní":
     p_pay = vytvor_p("Payout", "pay", [35, 55, 75, 90, 999], [10, 15, 5, -10, -25])
     p_pot = vytvor_p("Potenciál", "pot", [8, 18, 28, 45, 999], [0, 10, 18, 25, 35])
 
-# --- 5. DATA FETCH ---
+    st.sidebar.divider()
+    # Ovladače vah pod ukazateli
+    st.sidebar.markdown("**Váhy skupin**")
+    w_val = st.sidebar.slider("Valuace", 0.5, 3.0, 1.2)
+    w_prof = st.sidebar.slider("Rentabilita", 0.5, 3.0, 1.5)
+    w_growth = st.sidebar.slider("Růst", 0.5, 3.0, 1.0)
+    w_risk = st.sidebar.slider("Riziko", 0.5, 3.0, 1.8)
+
+# --- 4. DATA FETCH (YFINANCE) ---
 @st.cache_data(ttl=3600)
 def fetch_data(df_input):
     if df_input.empty: return []
@@ -101,12 +117,9 @@ def fetch_data(df_input):
 
 raw_data = fetch_data(df_raw)
 
-# --- 6. VÝPOČETNÍ LOGIKA ---
+# --- 5. VÝPOČETNÍ LOGIKA ---
 m_rows, c_rows, today = [], [], date.today()
 mapping_keys = ["P/E", "P/S", "P/B", "P/FCF", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Payout", "Potenciál"]
-
-st.title("🚀 Investiční Matrix V82.4")
-filtr_kat = st.pills("Zobrazit pro:", ["Vše", "Portfolio", "Sledované"], default="Portfolio")
 
 for item in raw_data:
     if filtr_kat != "Vše" and item["kat"] != filtr_kat: continue
@@ -144,36 +157,51 @@ for item in raw_data:
         "RSI": int(item['rsi']), "_rsi": item["rsi"], "_alert": [1 if pd.notnull(item["earn"]) and 0<=(pd.to_datetime(item["earn"], dayfirst=True).date()-today).days<=14 else 0, 1 if "Strong Buy" in str(inf.get('recommendationKey','')) else 0, 1 if ex_dt and 0<=(ex_dt-today).days<=10 else 0]
     })
 
-# --- 7. ZOBRAZENÍ MATRIXU ---
-st.subheader(f"📊 {strategie} Matrix ({filtr_kat})")
+# --- 6. ZOBRAZENÍ MATRIXU ---
 df_m = pd.DataFrame(m_rows)
 
 if df_m.empty:
-    st.warning("Žádná data k zobrazení. Změňte filtr nebo zkontrolujte tabulku.")
+    st.warning("Žádná data k zobrazení. Zkontrolujte filtr nebo Google tabulku.")
 else:
     def style_cells(r):
         styles = [''] * len(r)
         for i, col in enumerate(r.index):
-            # Barvy pozadí (Písmo zůstává černé)
             if col == "P/E" and r[col] > 30: styles[i] = 'background-color: #ffe5e5;'
             if col == "Dluh D/E" and r[col] > 120: styles[i] = 'background-color: #fff3cd;'
             if col == "Potenciál" and r[col] > 20: styles[i] = 'background-color: #d4edda;'
             if col == "Tržby y/y" and r[col] < 0: styles[i] = 'background-color: #ffe5e5;'
-            # Tržní data barevným písmem
             if col in ["Cena", "Změna"]: styles[i] = f"color: {'#28a745' if r['Změna']>0 else '#dc3545'}; font-weight: bold"
         return styles
 
     pct_cols = ["Změna", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Payout", "Potenciál"]
-    st.dataframe(df_m.style.apply(style_cells, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn").format({c: "{:.1f}%" for c in pct_cols}, precision=1), use_container_width=True, hide_index=True, height=800, column_order=["Ticker", "Cena", "Změna"] + mapping_keys + ["Score"])
+    st.dataframe(
+        df_m.style.apply(style_cells, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn").format({c: "{:.1f}%" for c in pct_cols}, precision=1), 
+        use_container_width=True, 
+        hide_index=True, 
+        height=800, 
+        column_order=["Ticker", "Cena", "Změna"] + mapping_keys + ["Score"]
+    )
 
-# --- 8. KALENDÁŘ ---
-st.subheader(f"📅 Kalendář & Signály ({filtr_kat})")
+# --- 7. KALENDÁŘ ---
+st.write("---")
 df_c = pd.DataFrame(c_rows)
 if not df_c.empty:
-    st.dataframe(df_c.style.apply(lambda r: [
-        'background-color: #ffc107' if i=='Dní do' and r['_alert'][0] else 
-        'background-color: #28a745; color: white' if i=='Analytické hodnocení' and r['_alert'][1] else
-        'background-color: #007bff; color: white' if i=='Ex-Date' and r['_alert'][2] else 
-        'background-color: #ffe5e5; color: #cc0000; font-weight: bold' if i=='RSI' and r['_rsi']>70 else
-        'background-color: #e5f9e5; color: #28a745; font-weight: bold' if i=='RSI' and r['_rsi']<30 else ''
-        for i in r.index], axis=1), use_container_width=True, hide_index=True, height=800, column_order=["Ticker", "Earnings", "Dní do", "Dividenda", "Ex-Date", "Analytické hodnocení", "RSI"])
+    st.dataframe(
+        df_c.style.apply(lambda r: [
+            'background-color: #ffc107' if i=='Dní do' and r['_alert'][0] else 
+            'background-color: #28a745; color: white' if i=='Analytické hodnocení' and r['_alert'][1] else
+            'background-color: #007bff; color: white' if i=='Ex-Date' and r['_alert'][2] else 
+            'background-color: #ffe5e5; color: #cc0000; font-weight: bold' if i=='RSI' and r['_rsi']>70 else
+            'background-color: #e5f9e5; color: #28a745; font-weight: bold' if i=='RSI' and r['_rsi']<30 else ''
+            for i in r.index], axis=1), 
+        use_container_width=True, 
+        hide_index=True, 
+        height=800, 
+        column_order=["Ticker", "Earnings", "Dní do", "Dividenda", "Ex-Date", "Analytické hodnocení", "RSI"]
+    )
+
+with st.expander("ℹ️ Legenda"):
+    st.markdown("""
+    * **Pozadí buněk v Matrixu:** Varovné hodnoty (P/E > 30, Dluh > 120 %, Potenciál > 20 %).
+    * **Kalendář:** 🟦 Ex-Date, 🟧 Earnings, 🟩 RSI < 30 (nákup), 🟥 RSI > 70 (prodej).
+    """)
