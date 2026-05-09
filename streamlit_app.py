@@ -4,7 +4,7 @@ import yfinance as yf
 from datetime import datetime, date
 
 # Konfigurace stránky
-st.set_page_config(page_title="Scoring firem V83.9", layout="wide")
+st.set_page_config(page_title="Scoring firem V84.0", layout="wide")
 
 # --- 1. POMOCNÉ FUNKCE ---
 def get_b(val, pasma):
@@ -175,35 +175,38 @@ for item in raw_data:
 # --- 6. ZOBRAZENÍ MATRIXU ---
 df_m = pd.DataFrame(m_rows)
 if not df_m.empty:
-    # Definice konfigurace sloupců pro zarovnání vpravo
-    col_config = {
-        "Ticker": st.column_config.TextColumn("Ticker", width="medium"),
+    # Oprava TypeError: Odstraněn width=None a přidáno explicitní zarovnání
+    config = {
+        "Ticker": st.column_config.TextColumn("Ticker"),
         "Score": st.column_config.NumberColumn("Score", format="%d"),
     }
-    # Pro všechny ostatní datové sloupce vynutíme zarovnání vpravo
     for col in ["Cena", "Změna"] + mapping_keys:
-        col_config[col] = st.column_config.TextColumn(col, label=col, help=None, width=None)
+        # Většina verzí Streamlitu neumí 'alignment' přímo v TextColumn, 
+        # proto to řešíme přes CSS v style.apply níže, ale zde aspoň nadefinujeme typy.
+        config[col] = st.column_config.TextColumn(col)
 
     def style_matrix(r):
-        styles = [''] * len(r)
+        styles = ['text-align: right'] * len(r) 
         if r["Type"] == "Points": 
-            return ['color: #888; font-style: italic; background-color: #f9f9f9'] * len(r)
+            return ['color: #888; font-style: italic; background-color: #f9f9f9; text-align: right'] * len(r)
         
         for i, col in enumerate(r.index):
-            if col in ["Cena", "Změna"]: styles[i] = f"color: {'#28a745' if r['_change']>0 else '#dc3545'}; font-weight: bold"
-            if col == "P/E" and r.get("_raw_P/E", 0) > 30: styles[i] = 'background-color: #ffe5e5'
-            if col == "Dluh D/E" and r.get("_raw_Dluh D/E", 0) > 120: styles[i] = 'background-color: #fff3cd'
-            if col == "Potenciál" and r.get("_raw_Potenciál", 0) > 20: styles[i] = 'background-color: #d4edda'
+            if col in ["Cena", "Změna"]: styles[i] = f"color: {'#28a745' if r['_change']>0 else '#dc3545'}; font-weight: bold; text-align: right"
+            elif col == "Ticker": styles[i] = "text-align: left"
+            else: styles[i] = "text-align: right"
+            
+            if col == "P/E" and r.get("_raw_P/E", 0) > 30: styles[i] += '; background-color: #ffe5e5'
+            if col == "Dluh D/E" and r.get("_raw_Dluh D/E", 0) > 120: styles[i] += '; background-color: #fff3cd'
+            if col == "Potenciál" and r.get("_raw_Potenciál", 0) > 20: styles[i] += '; background-color: #d4edda'
         return styles
 
-    # Aplikace stylu a konfigurace
     st.dataframe(
         df_m.style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn"), 
         use_container_width=True, 
         hide_index=True, 
         height=850 if zobrazit_body else 800, 
         column_order=["Ticker", "Cena", "Změna"] + mapping_keys + ["Score"],
-        column_config=col_config
+        column_config=config
     )
 
 st.write("---")
@@ -211,7 +214,7 @@ st.write("---")
 df_c = pd.DataFrame(c_rows)
 if not df_c.empty:
     st.dataframe(
-        df_c.style.apply(lambda r: ['background-color: #ffc107' if i=='Dní do' and r['_alert'][0] else 'background-color: #28a745; color: white' if i=='Analytické hodnocení' and r['_alert'][1] else 'background-color: #007bff; color: white' if i=='Ex-Date' and r['_alert'][2] else 'background-color: #ffe5e5; color: #cc0000; font-weight: bold' if i=='RSI' and r['_rsi']>70 else 'background-color: #e5f9e5; color: #28a745; font-weight: bold' if i=='RSI' and r['_rsi']<30 else '' for i in r.index], axis=1), 
+        df_c.style.apply(lambda r: ['text-align: right; background-color: #ffc107' if i=='Dní do' and r['_alert'][0] else 'text-align: right; background-color: #28a745; color: white' if i=='Analytické hodnocení' and r['_alert'][1] else 'text-align: right; background-color: #007bff; color: white' if i=='Ex-Date' and r['_alert'][2] else 'text-align: right; background-color: #ffe5e5; color: #cc0000; font-weight: bold' if i=='RSI' and r['_rsi']>70 else 'text-align: right; background-color: #e5f9e5; color: #28a745; font-weight: bold' if i=='RSI' and r['_rsi']<30 else 'text-align: right' for i in r.index], axis=1), 
         use_container_width=True, 
         hide_index=True, 
         height=800, 
