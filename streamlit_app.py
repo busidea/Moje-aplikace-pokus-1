@@ -2,20 +2,21 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 from datetime import datetime, date
-import numpy as np
 
 # Konfigurace stránky
-st.set_page_config(page_title="Scoring firem V83.5", layout="wide")
+st.set_page_config(page_title="Scoring firem V83.6", layout="wide")
 
 # --- 1. POMOCNÉ FUNKCE ---
 def get_b(val, pasma):
-    if val is None: return 0
+    # Pokud hodnota neexistuje nebo je 0, a první pásmo začíná výše, vrať 0 bodů
+    if val is None or val == 0:
+        return 0
     for p in pasma:
         if val <= p["h"]: return p["b"]
     return pasma[-1]["b"]
 
 def get_b_direct(val, h_list, b_list):
-    if val is None: return 0
+    if val is None or val == 0: return 0
     for h, b in zip(h_list, b_list):
         if val <= h: return b
     return b_list[-1]
@@ -58,6 +59,8 @@ if strategie == "Vlastní":
                 b = c2.number_input(f"Body", value=int(def_b[i]), key=f"{zk}_{i}b")
                 d.append({"h": h, "b": b})
             return d
+    
+    # 16 ovladačů
     p_pe = vytvor_p("P/E", "pe", [12, 18, 25, 40, 999], [20, 15, 5, 0, -15])
     p_ps = vytvor_p("P/S", "ps", [1.5, 3, 6, 10, 999], [15, 10, 5, 0, -10])
     p_pb = vytvor_p("P/B", "pb", [1, 2.5, 4, 8, 999], [10, 7, 3, 0, -5])
@@ -76,7 +79,10 @@ if strategie == "Vlastní":
     p_pot = vytvor_p("Potenciál", "pot", [8, 18, 28, 45, 999], [0, 10, 18, 25, 35])
 
     st.sidebar.divider()
-    w_val, w_prof, w_growth, w_risk = st.sidebar.slider("Valuace", 0.5, 3.0, 1.2), st.sidebar.slider("Rentabilita", 0.5, 3.0, 1.5), st.sidebar.slider("Růst", 0.5, 3.0, 1.0), st.sidebar.slider("Riziko", 0.5, 3.0, 1.8)
+    w_val = st.sidebar.slider("Váha: Valuace", 0.5, 3.0, 1.2)
+    w_prof = st.sidebar.slider("Váha: Rentabilita", 0.5, 3.0, 1.5)
+    w_growth = st.sidebar.slider("Váha: Růst", 0.5, 3.0, 1.0)
+    w_risk = st.sidebar.slider("Váha: Riziko", 0.5, 3.0, 1.8)
 
 # --- 4. DATA FETCH ---
 @st.cache_data(ttl=3600)
@@ -105,24 +111,34 @@ pct_cols = ["Změna", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "R
 for item in raw_data:
     if filtr_kat != "Vše" and item["kat"] != filtr_kat: continue
     inf, t = item["inf"], item["t"]
-    def g(k, m=1): 
-        val = inf.get(k)
-        return float(val) * m if (val is not None and str(val) != "None") else 0
     
-    # OPRAVA DIVIDENDY
-    d_raw = inf.get('dividendYield')
-    val_div = (float(d_raw) * 100) if (d_raw is not None and str(d_raw) != "None") else 0.0
-    
+    def safe_get(k, multiplier=1.0):
+        v = inf.get(k)
+        try:
+            if v is None or str(v) == "None" or str(v) == "": return 0.0
+            return float(v) * multiplier
+        except: return 0.0
+
+    # SPECIÁLNÍ OŠETŘENÍ DIVIDENDY
+    d_yield = inf.get('dividendYield')
+    if d_yield is None or str(d_yield) == "None":
+        val_div = 0.0
+    else:
+        val_div = float(d_yield)
+        # Pokud Yahoo vrací už procenta (např. 3.5) místo koeficientu (0.035), nebudeme násobit stem
+        if val_div < 1.0: val_div = val_div * 100.0
+
     raw_vals = {
-        "Ticker": t, "Cena": g("currentPrice"), "Změna": ((g("currentPrice")/g("previousClose", 1))-1)*100 if g("previousClose") != 0 else 0,
-        "P/E": g("trailingPE") or g("forwardPE"), "P/S": g("priceToSalesTrailing12Months"), 
-        "P/B": g("priceToBook"), "P/FCF": g("marketCap")/g("freeCashflow") if g("freeCashflow")!=0 else 0,
-        "H-Marže": g("grossMargins", 100), "H-Marže 3Y": g("grossMargins", 94),
-        "Č-Marže": g("profitMargins", 100), "Č-Marže 3Y": g("profitMargins", 91),
-        "ROE": g("returnOnEquity", 100), "ROE 3Y": g("returnOnEquity", 93),
-        "Tržby y/y": g("revenueGrowth", 100), "Zisk y/y": g("earningsGrowth", 100),
-        "Dluh D/E": g("debtToEquity"), "Div. výnos": val_div, "Payout": g("payoutRatio", 100),
-        "Potenciál": ((g("targetMeanPrice")/g("currentPrice", 1))-1)*100 if g("targetMeanPrice")>0 else 0
+        "Ticker": t, "Cena": safe_get("currentPrice"), 
+        "Změna": ((safe_get("currentPrice")/safe_get("previousClose", 1.0))-1)*100 if safe_get("previousClose") != 0 else 0,
+        "P/E": safe_get("trailingPE") or safe_get("forwardPE"), "P/S": safe_get("priceToSalesTrailing12Months"), 
+        "P/B": safe_get("priceToBook"), "P/FCF": safe_get("marketCap")/safe_get("freeCashflow") if safe_get("freeCashflow")!=0 else 0,
+        "H-Marže": safe_get("grossMargins", 100), "H-Marže 3Y": safe_get("grossMargins", 94),
+        "Č-Marže": safe_get("profitMargins", 100), "Č-Marže 3Y": safe_get("profitMargins", 91),
+        "ROE": safe_get("returnOnEquity", 100), "ROE 3Y": safe_get("returnOnEquity", 93),
+        "Tržby y/y": safe_get("revenueGrowth", 100), "Zisk y/y": safe_get("earningsGrowth", 100),
+        "Dluh D/E": safe_get("debtToEquity"), "Div. výnos": val_div, "Payout": safe_get("payoutRatio", 100),
+        "Potenciál": ((safe_get("targetMeanPrice")/safe_get("currentPrice", 1.0))-1)*100 if safe_get("targetMeanPrice")>0 else 0
     }
 
     row_val = {"Ticker": t, "Type": "Value", "_change": raw_vals["Změna"], "_score": 0}
@@ -150,7 +166,7 @@ for item in raw_data:
     if zobrazit_body: m_rows.append(row_pts)
 
     ex_dt = datetime.fromtimestamp(inf.get('exDividendDate')).date() if inf.get('exDividendDate') else None
-    c_rows.append({"Ticker": t, "Earnings": item["earn"], "Dní do": (pd.to_datetime(item["earn"], dayfirst=True).date() - today).days if item["earn"] != "-" else "-", "Dividenda": f"{g('dividendRate'):.2f} {inf.get('currency')}", "Ex-Date": ex_dt.strftime('%d.%m.%Y') if ex_dt else "-", "Analytické hodnocení": inf.get('recommendationKey', '-').replace('_', ' ').title(), "RSI": int(item['rsi']), "_rsi": item["rsi"], "_alert": [1 if item["earn"] != "-" and 0<=(pd.to_datetime(item["earn"], dayfirst=True).date()-today).days<=14 else 0, 1 if "Strong Buy" in str(inf.get('recommendationKey','')) else 0, 1 if ex_dt and 0<=(ex_dt-today).days<=10 else 0]})
+    c_rows.append({"Ticker": t, "Earnings": item["earn"], "Dní do": (pd.to_datetime(item["earn"], dayfirst=True).date() - today).days if item["earn"] != "-" else "-", "Dividenda": f"{safe_get('dividendRate'):.2f} {inf.get('currency')}", "Ex-Date": ex_dt.strftime('%d.%m.%Y') if ex_dt else "-", "Analytické hodnocení": inf.get('recommendationKey', '-').replace('_', ' ').title(), "RSI": int(item['rsi']), "_rsi": item["rsi"], "_alert": [1 if item["earn"] != "-" and 0<=(pd.to_datetime(item["earn"], dayfirst=True).date()-today).days<=14 else 0, 1 if "Strong Buy" in str(inf.get('recommendationKey','')) else 0, 1 if ex_dt and 0<=(ex_dt-today).days<=10 else 0]})
 
 # --- 6. ZOBRAZENÍ ---
 df_m = pd.DataFrame(m_rows)
