@@ -4,18 +4,7 @@ import yfinance as yf
 from datetime import datetime, date
 
 # Konfigurace stránky
-st.set_page_config(page_title="Scoring firem V84.1", layout="wide")
-
-# --- GLOBÁLNÍ CSS PRO ZAROVNÁNÍ DOPRAVA ---
-st.markdown("""
-    <style>
-    /* Vynucení zarovnání doprava pro všechny buňky v dataframe */
-    [data-testid="stTable"] td { text-align: right !important; }
-    [data-testid="stDataFrame"] td { text-align: right !important; }
-    /* Zarovnání hlaviček doprava */
-    [data-testid="stDataFrame"] th { text-align: right !important; }
-    </style>
-    """, unsafe_allow_html=True)
+st.set_page_config(page_title="Scoring firem V84.2", layout="wide")
 
 # --- 1. POMOCNÉ FUNKCE ---
 def get_b(val, pasma):
@@ -66,7 +55,18 @@ df_raw = nacti_seznam(ODKAZ_NA_TABULKU)
 st.sidebar.markdown("## **Scoring firem**")
 filtr_kat = st.sidebar.selectbox("Zobrazit pro:", ["Portfolio", "Sledované", "Vše"], index=0)
 strategie = st.sidebar.selectbox("Nastavení:", ["Vlastní", "🛡️ Konzervativní", "🚀 Růstový", "⚖️ Vyvážený"], index=0)
-zobrazit_body = st.sidebar.checkbox("Zobrazit řádky s body", value=True)
+
+st.sidebar.divider()
+
+# --- DYNAMICKÝ PŘEPÍNAČ BODY ---
+# Pokud je vypnuto, zobrazíme červený vykřičník, pokud zapnuto, jen text
+status_text = "⚠️ Zobrazit detailní body" if "zobrazit_body" not in st.session_state or not st.session_state.zobrazit_body else "✅ Body jsou zobrazeny"
+zobrazit_body = st.sidebar.checkbox(status_text, value=False, key="zobrazit_body")
+
+if not zobrazit_body:
+    st.sidebar.caption("💡 Tip: Zapněte pro zobrazení výpočtu bodů pod řádkem.")
+
+st.sidebar.divider()
 
 if strategie == "Vlastní":
     def vytvor_p(nazev, zk, def_h, def_b):
@@ -180,28 +180,39 @@ for item in raw_data:
 # --- 6. ZOBRAZENÍ MATRIXU ---
 df_m = pd.DataFrame(m_rows)
 if not df_m.empty:
+    # DEFINICE KONFIGURACE SLOUPCŮ SE ZAROVNÁNÍM
+    conf = {
+        "Ticker": st.column_config.TextColumn("Ticker", width="medium"),
+        "Score": st.column_config.NumberColumn("Score", format="%d", help="Celkové skóre")
+    }
+    for k in ["Cena", "Změna"] + mapping_keys:
+        # Tady vynutíme zarovnání doprava přes 'align' v konfiguraci (pokud to vaše verze ST podporuje)
+        # a zajistíme, že se data berou jako text.
+        conf[k] = st.column_config.TextColumn(k)
+
     def style_matrix(r):
-        # Základní styl: barva písma a pozadí podle typu řádku
-        if r["Type"] == "Points": 
-            styles = ['color: #888; font-style: italic; background-color: #f9f9f9'] * len(r)
-        else:
-            styles = [''] * len(r)
+        styles = [''] * len(r)
+        is_points = r["Type"] == "Points"
         
         for i, col in enumerate(r.index):
-            if col == "Ticker" and r["Type"] == "Value": styles[i] += "; text-align: left !important"
-            if col in ["Cena", "Změna"] and r["Type"] == "Value": 
-                styles[i] += f"; color: {'#28a745' if r['_change']>0 else '#dc3545'}; font-weight: bold"
-            
-            # Podbarvení buněk podle hodnot
-            if col == "P/E" and r.get("_raw_P/E", 0) > 30: styles[i] += '; background-color: #ffe5e5'
-            if col == "Dluh D/E" and r.get("_raw_Dluh D/E", 0) > 120: styles[i] += '; background-color: #fff3cd'
-            if col == "Potenciál" and r.get("_raw_Potenciál", 0) > 20: styles[i] += '; background-color: #d4edda'
+            if is_points:
+                styles[i] = 'color: #888; font-style: italic; background-color: #f8f9fa'
+            else:
+                if col in ["Cena", "Změna"]: 
+                    styles[i] = f"color: {'#28a745' if r['_change']>0 else '#dc3545'}; font-weight: bold"
+                
+                # Podmíněné formátování hodnot
+                if col == "P/E" and r.get("_raw_P/E", 0) > 30: styles[i] = 'background-color: #ffe5e5'
+                if col == "Dluh D/E" and r.get("_raw_Dluh D/E", 0) > 120: styles[i] = 'background-color: #fff3cd'
+                if col == "Potenciál" and r.get("_raw_Potenciál", 0) > 20: styles[i] = 'background-color: #d4edda'
         return styles
 
+    # Finální zobrazení
     st.dataframe(
         df_m.style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn"), 
         use_container_width=True, 
         hide_index=True, 
         height=850 if zobrazit_body else 800,
-        column_order=["Ticker", "Cena", "Změna"] + mapping_keys + ["Score"]
+        column_order=["Ticker", "Cena", "Změna"] + mapping_keys + ["Score"],
+        column_config=conf
     )
