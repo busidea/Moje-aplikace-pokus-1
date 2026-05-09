@@ -5,7 +5,7 @@ from datetime import datetime, date
 import numpy as np
 
 # Konfigurace stránky
-st.set_page_config(page_title="Scoring firem V83.3", layout="wide")
+st.set_page_config(page_title="Scoring firem V83.4", layout="wide")
 
 # --- 1. POMOCNÉ FUNKCE ---
 def get_b(val, pasma):
@@ -98,6 +98,7 @@ raw_data = fetch_data(df_raw)
 # --- 5. VÝPOČET ---
 m_rows, c_rows, today = [], [], date.today()
 mapping_keys = ["P/E", "P/S", "P/B", "P/FCF", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Payout", "Potenciál"]
+pct_cols = ["Změna", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Payout", "Potenciál"]
 
 for item in raw_data:
     if filtr_kat != "Vše" and item["kat"] != filtr_kat: continue
@@ -106,7 +107,7 @@ for item in raw_data:
     
     val_div = (inf.get('dividendYield', 0) * 100) if inf.get('dividendYield') else 0
     
-    vals = {
+    raw_vals = {
         "Ticker": t, "Cena": g("currentPrice"), "Změna": ((g("currentPrice")/g("previousClose", 1))-1)*100,
         "P/E": g("trailingPE") or g("forwardPE"), "P/S": g("priceToSalesTrailing12Months"), 
         "P/B": g("priceToBook"), "P/FCF": g("marketCap")/g("freeCashflow") if g("freeCashflow")!=0 else 0,
@@ -115,27 +116,47 @@ for item in raw_data:
         "ROE": g("returnOnEquity", 100), "ROE 3Y": g("returnOnEquity", 93),
         "Tržby y/y": g("revenueGrowth", 100), "Zisk y/y": g("earningsGrowth", 100),
         "Dluh D/E": g("debtToEquity"), "Div. výnos": val_div, "Payout": g("payoutRatio", 100),
-        "Potenciál": ((g("targetMeanPrice")/g("currentPrice", 1))-1)*100 if g("targetMeanPrice")>0 else 0,
-        "Score": 0, "Type": "Value"
+        "Potenciál": ((g("targetMeanPrice")/g("currentPrice", 1))-1)*100 if g("targetMeanPrice")>0 else 0
     }
 
-    pts = {"Ticker": f"└ {t} body", "Type": "Points"}
-    total = 0
+    # Finální řádek pro zobrazení (převod na naformátovaný text)
+    row_val = {"Ticker": t, "Type": "Value", "_change": raw_vals["Změna"], "_score": 0}
+    row_pts = {"Ticker": f"└ {t} body", "Type": "Points", "_change": 0, "_score": 0}
+    
+    total_score = 0
     for k in mapping_keys:
+        # Výpočet bodů
         if strategie == "Vlastní":
             w_map = {"v": w_val, "p": w_prof, "g": w_growth, "r": w_risk}
             p_map = {"P/E": p_pe, "P/S": p_ps, "P/B": p_pb, "P/FCF": p_pfcf, "H-Marže": p_gm, "H-Marže 3Y": p_gm3y, "Č-Marže": p_nm, "Č-Marže 3Y": p_nm3y, "ROE": p_roe, "ROE 3Y": p_roe3y, "Tržby y/y": p_rev, "Zisk y/y": p_eps, "Dluh D/E": p_deb, "Div. výnos": p_div, "Payout": p_pay, "Potenciál": p_pot}
             vw = w_map["v"] if k in ["P/E","P/S","P/B","P/FCF"] else (w_map["p"] if "Marže" in k or "ROE" in k else (w_map["g"] if k in ["Tržby y/y","Zisk y/y","Div. výnos","Potenciál"] else w_map["r"]))
-            b = get_b(vals[k], p_map[k]) * vw
+            b = get_b(raw_vals[k], p_map[k]) * vw
         else:
-            b = get_b_direct(vals[k], [15, 25, 40], [15, 5, -10])
-        pts[k] = b
-        total += b
-    
-    vals["Score"], pts["Score"] = total, total
-    m_rows.append(vals)
-    if zobrazit_body: m_rows.append(pts)
+            b = get_b_direct(raw_vals[k], [15, 25, 40], [15, 5, -10])
+        
+        total_score += b
+        # Formátování hodnoty
+        if k in pct_cols: row_val[k] = f"{raw_vals[k]:.1f}%"
+        else: row_val[k] = f"{raw_vals[k]:.1f}"
+        # Formátování bodů
+        row_pts[k] = f"{b:.0f}"
+        # Pomocné hodnoty pro barvení
+        row_val[f"_raw_{k}"] = raw_vals[k]
 
+    row_val["Cena"] = f"{raw_vals['Cena']:.2f}"
+    row_val["Změna"] = f"{raw_vals['Změna']:.1f}%"
+    row_val["Score"] = f"{total_score:.0f}"
+    row_val["_score"] = total_score
+    
+    row_pts["Cena"] = ""
+    row_pts["Změna"] = ""
+    row_pts["Score"] = f"{total_score:.0f}"
+    row_pts["_score"] = total_score
+
+    m_rows.append(row_val)
+    if zobrazit_body: m_rows.append(row_pts)
+
+    # Kalendář
     ex_dt = datetime.fromtimestamp(inf.get('exDividendDate')).date() if inf.get('exDividendDate') else None
     c_rows.append({
         "Ticker": t, "Earnings": item["earn"], "Dní do": (pd.to_datetime(item["earn"], dayfirst=True).date() - today).days if item["earn"] != "-" else "-",
@@ -153,29 +174,22 @@ else:
         styles = [''] * len(r)
         if r["Type"] == "Points":
             return ['color: #888; font-style: italic; background-color: #f9f9f9'] * len(r)
+        
         for i, col in enumerate(r.index):
-            if col == "P/E" and r[col] > 30: styles[i] = 'background-color: #ffe5e5;'
-            if col == "Dluh D/E" and r[col] > 120: styles[i] = 'background-color: #fff3cd;'
-            if col == "Potenciál" and r[col] > 20: styles[i] = 'background-color: #d4edda;'
-            if col in ["Cena", "Změna"]: styles[i] = f"color: {'#28a745' if r['Změna']>0 else '#dc3545'}; font-weight: bold"
+            # Barvení tržních dat (zelená/červená)
+            if col in ["Cena", "Změna"]:
+                styles[i] = f"color: {'#28a745' if r['_change']>0 else '#dc3545'}; font-weight: bold"
+            
+            # Podbarvení varovných buněk (používáme skryté _raw sloupce)
+            if col == "P/E" and r["_raw_P/E"] > 30: styles[i] = 'background-color: #ffe5e5;'
+            if col == "Dluh D/E" and r["_raw_Dluh D/E"] > 120: styles[i] = 'background-color: #fff3cd;'
+            if col == "Potenciál" and r["_raw_Potenciál"] > 20: styles[i] = 'background-color: #d4edda;'
+            if col == "Tržby y/y" and r["_raw_Tržby y/y"] < 0: styles[i] = 'background-color: #ffe5e5;'
         return styles
 
-    pct_cols = ["Změna", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Payout", "Potenciál"]
-    
-    # OPRAVENÉ FORMÁTOVÁNÍ: Podmíněné podle typu řádku
-    styler = df_m.style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn")
-    
-    def format_vals(val, col_name, row_type):
-        if row_type == "Points":
-            return f"{val:.0f}"  # Body jako celá čísla bez %
-        if col_name in pct_cols:
-            return f"{val:.1f}%" # Hodnoty s %
-        return f"{val:.1f}"      # Ostatní (Cena, P/E)
-
-    # Aplikace formátu buněk po jedné
+    # Zobrazení Matrixu
     st.dataframe(
-        styler.format(lambda x: f"{x:.1f}%" if not isinstance(x, str) else x, subset=pct_cols)
-              .format(lambda x: f"{x:.0f}" if not isinstance(x, str) else x, subset=["Score"]),
+        df_m.style.apply(style_matrix, axis=1).background_gradient(subset=["_score"], cmap="RdYlGn"),
         use_container_width=True, 
         hide_index=True, 
         height=850 if zobrazit_body else 800, 
@@ -183,6 +197,7 @@ else:
     )
 
 st.write("---")
+# --- 7. KALENDÁŘ ---
 df_c = pd.DataFrame(c_rows)
 if not df_c.empty:
     st.dataframe(df_c.style.apply(lambda r: ['background-color: #ffc107' if i=='Dní do' and r['_alert'][0] else 'background-color: #28a745; color: white' if i=='Analytické hodnocení' and r['_alert'][1] else 'background-color: #007bff; color: white' if i=='Ex-Date' and r['_alert'][2] else 'background-color: #ffe5e5; color: #cc0000; font-weight: bold' if i=='RSI' and r['_rsi']>70 else 'background-color: #e5f9e5; color: #28a745; font-weight: bold' if i=='RSI' and r['_rsi']<30 else '' for i in r.index], axis=1), use_container_width=True, hide_index=True, height=800, column_order=["Ticker", "Earnings", "Dní do", "Dividenda", "Ex-Date", "Analytické hodnocení", "RSI"])
