@@ -4,24 +4,16 @@ import yfinance as yf
 from datetime import datetime, date
 
 # Konfigurace stránky
-st.set_page_config(page_title="Scoring firem V85.9", layout="wide")
+st.set_page_config(page_title="Scoring firem V86.0", layout="wide")
 
-# --- KOMPLETNÍ CSS STYLING ---
+# --- CSS STYLING ---
 st.markdown("""
     <style>
-    /* Zarovnání všech buněk vpravo */
     [data-testid="stDataFrame"] td { text-align: right !important; }
-    
-    /* Titul (první sloupec) - Vynucení tmavě modré, tučné a zarovnání vlevo */
     [data-testid="stDataFrame"] td:first-child { 
         text-align: left !important; 
         font-weight: bold !important;
-        color: #003366 !important; /* Tmavě modrá */
     }
-    
-    /* Hlavičky */
-    [data-testid="stDataFrame"] th { text-align: right !important; }
-    [data-testid="stDataFrame"] th:first-child { text-align: left !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -173,7 +165,7 @@ for item in raw_data:
     days_to = (pd.to_datetime(item["earn"], dayfirst=True).date() - today).days if item["earn"] != "-" else 999
     ex_dt = datetime.fromtimestamp(inf.get('exDividendDate')).date() if inf.get('exDividendDate') else None
     c_rows.append({
-        "Titul": f"{name} ({t})", "Earnings": item["earn"], "Dní do": days_to,
+        "Titul": name, "Ticker": t, "Earnings": item["earn"], "Dní do": days_to,
         "Dividenda": f"{sg('dividendRate'):.2f} {inf.get('currency', 'USD')}", 
         "Ex-Date": ex_dt.strftime('%d.%m.%Y') if ex_dt else "-", 
         "Doporučení": inf.get('recommendationKey', '-').replace('_', ' ').title(), 
@@ -188,40 +180,37 @@ if stranka == "Scoring Matrix":
             s = [''] * len(r)
             if r["Type"] == "Points": return ['color: #888; font-style: italic; background-color: #f8f9fa'] * len(r)
             for i, col in enumerate(r.index):
-                # Barva Ceny a Změny
-                if col in ["Cena", "Změna"]: s[i] = f"color: {'#28a745' if r['_change']>0 else '#dc3545'}; font-weight: bold"
-                # Přísnější podbarvování buněk
+                # Názvy společností - tmavě modrá
+                if col == "Titul": s[i] = "color: #003366; font-weight: bold"
+                # Cena a Změna
+                if col in ["Cena", "Změna"]: s[i] = f"color: {'#1b5e20' if r['_change']>0 else '#b71c1c'}; font-weight: bold"
+                # Podbarvování (přísné)
                 val = r.get(f"_raw_{col}", 0)
-                if col == "P/E" and val > 25: s[i] = 'background-color: #ffcccc'
-                if "Marže" in col and val < 15: s[i] = 'background-color: #ffe5cc'
-                if col == "Potenciál" and val > 15: s[i] = 'background-color: #ccffcc; font-weight: bold'
-                if col == "Dluh D/E" and val > 150: s[i] = 'background-color: #ffcccc; color: red'
+                if col == "P/E" and val > 22: s[i] = 'background-color: #ffebee' # Jemně červená
+                if col == "P/E" and val > 35: s[i] = 'background-color: #ffcdd2; color: #b71c1c' # Silně červená
+                if "Marže" in col and val < 10: s[i] = 'background-color: #fff3e0' # Oranžová
+                if col == "Potenciál" and val > 20: s[i] = 'background-color: #e8f5e9; color: #1b5e20; font-weight: bold'
             return s
         
-        # Odstranění technických sloupců před zobrazením
-        cols_to_show = ["Titul", "Cena", "Změna"] + mapping_keys + ["Score"]
-        st.dataframe(df.style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn", vmin=0, vmax=100),
-                     use_container_width=True, hide_index=True, height=850, column_order=cols_to_show)
+        # Kontrastní Heatmapa pro Score
+        st.dataframe(df.style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn", vmin=10, vmax=90),
+                     use_container_width=True, hide_index=True, height=850, 
+                     column_order=["Titul", "Cena", "Změna"] + mapping_keys + ["Score"])
 else:
     df_c = pd.DataFrame(c_rows)
     if not df_c.empty:
         def style_calendar(r):
             s = [''] * len(r)
-            # Dní do
+            if r.index.get_loc("Titul") >= 0: s[r.index.get_loc("Titul")] = "color: #003366; font-weight: bold"
             d_idx = r.index.get_loc("Dní do")
             if isinstance(r["Dní do"], int):
                 if r["Dní do"] < 0: s[d_idx] = 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold'
                 elif r["Dní do"] < 10: s[d_idx] = 'background-color: #fff9c4; color: #f57f17; font-weight: bold'
-            # Analytici
-            rec = str(r["Doporučení"]).lower(); rec_idx = r.index.get_loc("Doporučení")
-            if "strong buy" in rec or "outperform" in rec: s[rec_idx] = 'background-color: #1b5e20; color: white'
-            elif "buy" in rec or "overweight" in rec: s[rec_idx] = 'background-color: #c8e6c9'
-            elif "sell" in rec: s[rec_idx] = 'background-color: #ffcdd2'
-            # RSI Barvení
+            # RSI
             rsi_idx = r.index.get_loc("RSI")
-            if r["_rsi"] < 30: s[rsi_idx] = 'background-color: #d1e7dd; color: #0f5132; font-weight: bold'
-            elif r["_rsi"] > 70: s[rsi_idx] = 'background-color: #f8d7da; color: #842029; font-weight: bold'
+            if r["_rsi"] < 30: s[rsi_idx] = 'background-color: #c8e6c9; color: #1b5e20; font-weight: bold'
+            elif r["_rsi"] > 70: s[rsi_idx] = 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold'
             return s
             
         st.dataframe(df_c.style.apply(style_calendar, axis=1), use_container_width=True, hide_index=True, height=850,
-                     column_order=["Titul", "Earnings", "Dní do", "Dividenda", "Ex-Date", "Doporučení", "RSI"])
+                     column_order=["Titul", "Ticker", "Earnings", "Dní do", "Dividenda", "Ex-Date", "Doporučení", "RSI"])
