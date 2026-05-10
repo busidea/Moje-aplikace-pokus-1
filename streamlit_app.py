@@ -4,19 +4,24 @@ import yfinance as yf
 from datetime import datetime, date
 
 # Konfigurace stránky
-st.set_page_config(page_title="Scoring firem V85.8", layout="wide")
+st.set_page_config(page_title="Scoring firem V85.9", layout="wide")
 
-# --- STYLING ---
+# --- KOMPLETNÍ CSS STYLING ---
 st.markdown("""
     <style>
-    /* Zarovnání čísel doprava */
+    /* Zarovnání všech buněk vpravo */
     [data-testid="stDataFrame"] td { text-align: right !important; }
-    /* Titul vlevo a tučně */
+    
+    /* Titul (první sloupec) - Vynucení tmavě modré, tučné a zarovnání vlevo */
     [data-testid="stDataFrame"] td:first-child { 
         text-align: left !important; 
         font-weight: bold !important;
-        color: #004b7c !important;
+        color: #003366 !important; /* Tmavě modrá */
     }
+    
+    /* Hlavičky */
+    [data-testid="stDataFrame"] th { text-align: right !important; }
+    [data-testid="stDataFrame"] th:first-child { text-align: left !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -125,14 +130,11 @@ pct_cols = ["Změna", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "R
 for item in raw_data:
     if filtr_kat != "Vše" and item["kat"] != filtr_kat: continue
     inf, t, name = item["inf"], item["t"], item["name"]
-    
     def sg(k, mult=1.0):
-        v = inf.get(k)
-        return float(v) * mult if v is not None and str(v) != "None" else 0.0
+        v = inf.get(k); return float(v) * mult if v is not None and str(v) != "None" else 0.0
 
-    # OPRAVA DIVIDENDY - Vynucené dělení 100 pro správný řád u yfinance
-    div_val = sg("dividendYield") * 100 
-    if div_val > 50: div_val = div_val / 100 # Pojistka pro tituly co vrací 3.5 místo 0.035
+    div_val = sg("dividendYield") * 100
+    if div_val > 50: div_val = div_val / 100
 
     raw_vals = {
         "Cena": sg("currentPrice"), "Změna": ((sg("currentPrice")/sg("previousClose", 1.0))-1)*100 if sg("previousClose") else 0,
@@ -182,31 +184,44 @@ for item in raw_data:
 if stranka == "Scoring Matrix":
     df = pd.DataFrame(m_rows)
     if not df.empty:
-        st.dataframe(df.style.apply(lambda r: ['color: #888; font-style: italic; background-color: #f8f9fa' if r["Type"]=="Points" else '' for _ in r], axis=1)
-                     .background_gradient(subset=["Score"], cmap="RdYlGn"),
-                     use_container_width=True, hide_index=True, height=850,
-                     column_config={"Titul": st.column_config.TextColumn("Titul", width="medium")},
-                     column_order=["Titul", "Cena", "Změna"] + mapping_keys + ["Score"])
+        def style_matrix(r):
+            s = [''] * len(r)
+            if r["Type"] == "Points": return ['color: #888; font-style: italic; background-color: #f8f9fa'] * len(r)
+            for i, col in enumerate(r.index):
+                # Barva Ceny a Změny
+                if col in ["Cena", "Změna"]: s[i] = f"color: {'#28a745' if r['_change']>0 else '#dc3545'}; font-weight: bold"
+                # Přísnější podbarvování buněk
+                val = r.get(f"_raw_{col}", 0)
+                if col == "P/E" and val > 25: s[i] = 'background-color: #ffcccc'
+                if "Marže" in col and val < 15: s[i] = 'background-color: #ffe5cc'
+                if col == "Potenciál" and val > 15: s[i] = 'background-color: #ccffcc; font-weight: bold'
+                if col == "Dluh D/E" and val > 150: s[i] = 'background-color: #ffcccc; color: red'
+            return s
+        
+        # Odstranění technických sloupců před zobrazením
+        cols_to_show = ["Titul", "Cena", "Změna"] + mapping_keys + ["Score"]
+        st.dataframe(df.style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn", vmin=0, vmax=100),
+                     use_container_width=True, hide_index=True, height=850, column_order=cols_to_show)
 else:
     df_c = pd.DataFrame(c_rows)
     if not df_c.empty:
         def style_calendar(r):
             s = [''] * len(r)
-            # Dní do - barvení
+            # Dní do
             d_idx = r.index.get_loc("Dní do")
             if isinstance(r["Dní do"], int):
                 if r["Dní do"] < 0: s[d_idx] = 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold'
                 elif r["Dní do"] < 10: s[d_idx] = 'background-color: #fff9c4; color: #f57f17; font-weight: bold'
-            
             # Analytici
-            rec = str(r["Doporučení"]).lower()
-            rec_idx = r.index.get_loc("Doporučení")
+            rec = str(r["Doporučení"]).lower(); rec_idx = r.index.get_loc("Doporučení")
             if "strong buy" in rec or "outperform" in rec: s[rec_idx] = 'background-color: #1b5e20; color: white'
             elif "buy" in rec or "overweight" in rec: s[rec_idx] = 'background-color: #c8e6c9'
-            elif "hold" in rec: s[rec_idx] = 'background-color: #f5f5f5'
             elif "sell" in rec: s[rec_idx] = 'background-color: #ffcdd2'
+            # RSI Barvení
+            rsi_idx = r.index.get_loc("RSI")
+            if r["_rsi"] < 30: s[rsi_idx] = 'background-color: #d1e7dd; color: #0f5132; font-weight: bold'
+            elif r["_rsi"] > 70: s[rsi_idx] = 'background-color: #f8d7da; color: #842029; font-weight: bold'
             return s
             
-        st.dataframe(df_c.style.apply(style_calendar, axis=1), 
-                     use_container_width=True, hide_index=True, height=850,
-                     column_config={"Dní do": st.column_config.NumberColumn("Dní do", format="%d")})
+        st.dataframe(df_c.style.apply(style_calendar, axis=1), use_container_width=True, hide_index=True, height=850,
+                     column_order=["Titul", "Earnings", "Dní do", "Dividenda", "Ex-Date", "Doporučení", "RSI"])
