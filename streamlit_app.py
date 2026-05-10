@@ -2,9 +2,10 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 from datetime import datetime, date
+import numpy as np
 
 # Konfigurace stránky
-st.set_page_config(page_title="Scoring firem V86.0", layout="wide")
+st.set_page_config(page_title="Scoring firem V86.1", layout="wide")
 
 # --- CSS STYLING ---
 st.markdown("""
@@ -13,6 +14,7 @@ st.markdown("""
     [data-testid="stDataFrame"] td:first-child { 
         text-align: left !important; 
         font-weight: bold !important;
+        color: #003366 !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -156,6 +158,7 @@ for item in raw_data:
         row_v[k] = fmt(raw_vals[k], 1, k in pct_cols)
         row_p[k] = str(int(round(b)))
         row_v[f"_raw_{k}"] = raw_vals[k]
+    
     row_v["Cena"], row_v["Změna"], row_v["Score"] = fmt(raw_vals["Cena"], 2), fmt(raw_vals["Změna"], 1, True), int(round(total))
     row_p["Cena"], row_p["Změna"], row_p["Score"] = "", "", int(round(total))
     m_rows.append(row_v)
@@ -180,20 +183,16 @@ if stranka == "Scoring Matrix":
             s = [''] * len(r)
             if r["Type"] == "Points": return ['color: #888; font-style: italic; background-color: #f8f9fa'] * len(r)
             for i, col in enumerate(r.index):
-                # Názvy společností - tmavě modrá
-                if col == "Titul": s[i] = "color: #003366; font-weight: bold"
-                # Cena a Změna
                 if col in ["Cena", "Změna"]: s[i] = f"color: {'#1b5e20' if r['_change']>0 else '#b71c1c'}; font-weight: bold"
-                # Podbarvování (přísné)
                 val = r.get(f"_raw_{col}", 0)
-                if col == "P/E" and val > 22: s[i] = 'background-color: #ffebee' # Jemně červená
-                if col == "P/E" and val > 35: s[i] = 'background-color: #ffcdd2; color: #b71c1c' # Silně červená
-                if "Marže" in col and val < 10: s[i] = 'background-color: #fff3e0' # Oranžová
-                if col == "Potenciál" and val > 20: s[i] = 'background-color: #e8f5e9; color: #1b5e20; font-weight: bold'
+                if col == "P/E" and val > 20: s[i] = 'background-color: #ffebee'
+                if col == "P/E" and val > 30: s[i] = 'background-color: #ffcdd2; color: #b71c1c'
+                if "Marže" in col and val < 15: s[i] = 'background-color: #fff3e0'
+                if col == "Dluh D/E" and val > 120: s[i] = 'background-color: #ffcdd2; color: #b71c1c'
             return s
         
-        # Kontrastní Heatmapa pro Score
-        st.dataframe(df.style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn", vmin=10, vmax=90),
+        # OPRAVA BAREV SCORE: Omezení vlivu outlierů pro lepší gradient
+        st.dataframe(df.style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn", vmin=0, vmax=120),
                      use_container_width=True, hide_index=True, height=850, 
                      column_order=["Titul", "Cena", "Změna"] + mapping_keys + ["Score"])
 else:
@@ -201,15 +200,24 @@ else:
     if not df_c.empty:
         def style_calendar(r):
             s = [''] * len(r)
-            if r.index.get_loc("Titul") >= 0: s[r.index.get_loc("Titul")] = "color: #003366; font-weight: bold"
+            # Dní do
             d_idx = r.index.get_loc("Dní do")
             if isinstance(r["Dní do"], int):
                 if r["Dní do"] < 0: s[d_idx] = 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold'
                 elif r["Dní do"] < 10: s[d_idx] = 'background-color: #fff9c4; color: #f57f17; font-weight: bold'
+            
+            # DOPORUČENÍ (Návrat barev)
+            rec = str(r["Doporučení"]).lower()
+            rec_idx = r.index.get_loc("Doporučení")
+            if "strong buy" in rec or "outperform" in rec: s[rec_idx] = 'background-color: #1b5e20; color: white'
+            elif "buy" in rec or "overweight" in rec: s[rec_idx] = 'background-color: #c8e6c9; color: black'
+            elif "hold" in rec: s[rec_idx] = 'background-color: #fff9c4; color: black'
+            elif "sell" in rec: s[rec_idx] = 'background-color: #ffcdd2; color: #b71c1c'
+            
             # RSI
             rsi_idx = r.index.get_loc("RSI")
-            if r["_rsi"] < 30: s[rsi_idx] = 'background-color: #c8e6c9; color: #1b5e20; font-weight: bold'
-            elif r["_rsi"] > 70: s[rsi_idx] = 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold'
+            if r["_rsi"] < 35: s[rsi_idx] = 'background-color: #c8e6c9; color: #1b5e20; font-weight: bold'
+            elif r["_rsi"] > 65: s[rsi_idx] = 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold'
             return s
             
         st.dataframe(df_c.style.apply(style_calendar, axis=1), use_container_width=True, hide_index=True, height=850,
