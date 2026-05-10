@@ -4,7 +4,20 @@ import yfinance as yf
 from datetime import datetime, date
 
 # Konfigurace stránky
-st.set_page_config(page_title="Scoring firem V85.1", layout="wide")
+st.set_page_config(page_title="Scoring firem V85.2", layout="wide")
+
+# --- GLOBÁLNÍ CSS PRO ZAROVNÁNÍ DOPRAVA A STYLING ---
+st.markdown("""
+    <style>
+    /* Vynucení zarovnání doprava pro buňky v tabulkách */
+    [data-testid="stTable"] td { text-align: right !important; }
+    [data-testid="stDataFrame"] td { text-align: right !important; }
+    /* Zarovnání hlaviček doprava */
+    [data-testid="stDataFrame"] th { text-align: right !important; }
+    /* Levý sloupec (Titul) chceme nechat vlevo */
+    [data-testid="stDataFrame"] td:first-child { text-align: left !important; font-weight: bold !important; }
+    </style>
+    """, unsafe_allow_html=True)
 
 # --- 1. POMOCNÉ FUNKCE ---
 def get_b(val, pasma):
@@ -51,57 +64,26 @@ def nacti_seznam(odkaz):
 
 df_raw = nacti_seznam(ODKAZ_NA_TABULKU)
 
-# --- 3. LEVÁ LIŠTA (NAVIGACE A OVLADAČE) ---
+# --- 3. LEVÁ LIŠTA ---
 st.sidebar.markdown("## **📊 Portfoliomanžer**")
 stranka = st.sidebar.radio("Zvolte zobrazení:", ["Scoring Matrix", "Kalendář & RSI"])
-
 st.sidebar.divider()
 filtr_kat = st.sidebar.selectbox("Zobrazit pro:", ["Portfolio", "Sledované", "Vše"], index=0)
 
-# Inicializace proměnných pro váhy (aby byly dostupné i pro výpočet v pozadí)
 w_val, w_prof, w_growth, w_risk = 1.2, 1.5, 1.0, 1.8
 
 if stranka == "Scoring Matrix":
     strategie = st.sidebar.selectbox("Nastavení:", ["Vlastní", "🛡️ Konzervativní", "🚀 Růstový", "⚖️ Vyvážený"], index=0)
-    
     st.sidebar.divider()
     status_text = "⚠️ Zobrazit detailní body" if "zobrazit_body" not in st.session_state or not st.session_state.zobrazit_body else "✅ Body jsou zobrazeny"
     zobrazit_body = st.sidebar.checkbox(status_text, value=False, key="zobrazit_body")
-    st.sidebar.divider()
-
+    
     if strategie == "Vlastní":
-        def vytvor_p(nazev, zk, def_h, def_b):
-            with st.sidebar.expander(f"📊 {nazev}", expanded=False):
-                d = []
-                for i in range(5):
-                    c1, c2 = st.columns(2)
-                    h = c1.number_input(f"Do:", value=float(def_h[i]), key=f"{zk}_{i}")
-                    b = c2.number_input(f"Body", value=int(def_b[i]), key=f"{zk}_{i}b")
-                    d.append({"h": h, "b": b})
-                return d
-        
-        p_pe = vytvor_p("P/E", "pe", [12, 18, 25, 40, 999], [20, 15, 5, 0, -15])
-        p_ps = vytvor_p("P/S", "ps", [1.5, 3, 6, 10, 999], [15, 10, 5, 0, -10])
-        p_pb = vytvor_p("P/B", "pb", [1, 2.5, 4, 8, 999], [10, 7, 3, 0, -5])
-        p_pfcf = vytvor_p("P/FCF", "pfcf", [12, 20, 35, 50, 999], [20, 12, 5, 0, -10])
-        p_gm = vytvor_p("H-Marže", "gm", [20, 35, 50, 70, 999], [0, 8, 15, 20, 25])
-        p_gm3y = vytvor_p("H-Marže 3Y", "gm3y", [20, 35, 50, 70, 999], [0, 8, 15, 20, 25])
-        p_nm = vytvor_p("Č-Marže", "nm", [10, 20, 30, 45, 999], [0, 10, 18, 22, 30])
-        p_nm3y = vytvor_p("Č-Marže 3Y", "nm3y", [10, 20, 30, 45, 999], [0, 10, 18, 22, 30])
-        p_roe = vytvor_p("ROE", "roe", [12, 22, 35, 55, 999], [0, 10, 15, 20, 25])
-        p_roe3y = vytvor_p("ROE 3Y", "roe3y", [12, 22, 35, 55, 999], [0, 10, 15, 20, 25])
-        p_rev = vytvor_p("Tržby y/y", "rev", [0, 10, 20, 35, 999], [-10, 8, 15, 25, 35])
-        p_eps = vytvor_p("Zisk y/y", "eps", [0, 10, 25, 45, 999], [-15, 10, 20, 28, 40])
-        p_deb = vytvor_p("Dluh D/E", "deb", [40, 80, 120, 200, 999], [20, 10, 0, -15, -40])
-        p_div = vytvor_p("Div. výnos", "div", [2, 4, 6, 8, 999], [5, 12, 15, 10, 5])
-        p_pay = vytvor_p("Payout", "pay", [35, 55, 75, 90, 999], [10, 15, 5, -10, -25])
-        p_pot = vytvor_p("Potenciál", "pot", [8, 18, 28, 45, 999], [0, 10, 18, 25, 35])
-
-        st.sidebar.divider()
-        w_val = st.sidebar.slider("Váha: Valuace", 0.5, 3.0, 1.2)
-        w_prof = st.sidebar.slider("Váha: Rentabilita", 0.5, 3.0, 1.5)
-        w_growth = st.sidebar.slider("Váha: Růst", 0.5, 3.0, 1.0)
-        w_risk = st.sidebar.slider("Váha: Riziko", 0.5, 3.0, 1.8)
+        with st.sidebar.expander("⚙️ Nastavení vah", expanded=False):
+            w_val = st.sidebar.slider("Váha: Valuace", 0.5, 3.0, 1.2)
+            w_prof = st.sidebar.slider("Váha: Rentabilita", 0.5, 3.0, 1.5)
+            w_growth = st.sidebar.slider("Váha: Růst", 0.5, 3.0, 1.0)
+            w_risk = st.sidebar.slider("Váha: Riziko", 0.5, 3.0, 1.8)
 else:
     zobrazit_body = False
 
@@ -162,15 +144,7 @@ for item in raw_data:
     
     total_score = 0
     for k in mapping_keys:
-        # Výpočet bodů
-        if stranka == "Scoring Matrix" and strategie == "Vlastní":
-            w_map = {"v": w_val, "p": w_prof, "g": w_growth, "r": w_risk}
-            p_map = {"P/E": p_pe, "P/S": p_ps, "P/B": p_pb, "P/FCF": p_pfcf, "H-Marže": p_gm, "H-Marže 3Y": p_gm3y, "Č-Marže": p_nm, "Č-Marže 3Y": p_nm3y, "ROE": p_roe, "ROE 3Y": p_roe3y, "Tržby y/y": p_rev, "Zisk y/y": p_eps, "Dluh D/E": p_deb, "Div. výnos": p_div, "Payout": p_pay, "Potenciál": p_pot}
-            vw = w_map["v"] if k in ["P/E","P/S","P/B","P/FCF"] else (w_map["p"] if "Marže" in k or "ROE" in k else (w_map["g"] if k in ["Tržby y/y","Zisk y/y","Div. výnos","Potenciál"] else w_map["r"]))
-            b = get_b(raw_vals[k], p_map[k]) * vw
-        else:
-            b = get_b_direct(raw_vals[k], [15, 25, 40], [15, 5, -10])
-        
+        b = get_b_direct(raw_vals[k], [15, 25, 40], [15, 5, -10])
         total_score += b
         row_val[k] = format_cz(raw_vals[k], precision=1, is_pct=(k in pct_cols))
         row_pts[k] = format_cz(b, precision=0)
@@ -184,11 +158,11 @@ for item in raw_data:
     # Kalendář řádky
     ex_dt = datetime.fromtimestamp(inf.get('exDividendDate')).date() if inf.get('exDividendDate') else None
     c_rows.append({
-        "Titul": f"{name} ({t})", "Earnings": item["earn"], 
+        "Titul": name, "Earnings": item["earn"], 
         "Dní do": (pd.to_datetime(item["earn"], dayfirst=True).date() - today).days if item["earn"] != "-" else "-", 
         "Dividenda": f"{safe_get('dividendRate'):.2f} {inf.get('currency')}", 
         "Ex-Date": ex_dt.strftime('%d.%m.%Y') if ex_dt else "-", 
-        "Analytické hodnocení": inf.get('recommendationKey', '-').replace('_', ' ').title(), 
+        "Analytické": inf.get('recommendationKey', '-').replace('_', ' ').title(), 
         "RSI": int(item['rsi']), "_rsi": item["rsi"], 
         "_alert": [1 if item["earn"] != "-" and 0<=(pd.to_datetime(item["earn"], dayfirst=True).date()-today).days<=14 else 0, 1 if "Strong Buy" in str(inf.get('recommendationKey','')) else 0, 1 if ex_dt and 0<=(ex_dt-today).days<=10 else 0]
     })
@@ -197,7 +171,7 @@ for item in raw_data:
 if stranka == "Scoring Matrix":
     df_m = pd.DataFrame(m_rows)
     if not df_m.empty:
-        conf = {"Titul": st.column_config.TextColumn("Titul", width="large"), "Score": st.column_config.NumberColumn("Score", format="%d")}
+        conf = {"Titul": st.column_config.TextColumn("Titul", width="medium"), "Score": st.column_config.NumberColumn("Score", format="%d")}
         for k in ["Cena", "Změna"] + mapping_keys: conf[k] = st.column_config.TextColumn(k)
 
         def style_matrix(r):
@@ -221,19 +195,9 @@ if stranka == "Scoring Matrix":
 else:
     df_c = pd.DataFrame(c_rows)
     if not df_c.empty:
-        def style_calendar(r):
-            styles = [''] * len(r)
-            for i, col in enumerate(r.index):
-                if col == 'Dní do' and r['_alert'][0]: styles[i] = 'background-color: #ffc107; color: black; font-weight: bold'
-                elif col == 'Analytické hodnocení' and r['_alert'][1]: styles[i] = 'background-color: #28a745; color: white; font-weight: bold'
-                elif col == 'Ex-Date' and r['_alert'][2]: styles[i] = 'background-color: #007bff; color: white; font-weight: bold'
-                elif col == 'RSI':
-                    if r['_rsi'] > 70: styles[i] = 'background-color: #ffe5e5; color: #cc0000; font-weight: bold'
-                    elif r['_rsi'] < 30: styles[i] = 'background-color: #e5f9e5; color: #28a745; font-weight: bold'
-            return styles
-        
         st.dataframe(
-            df_c.style.apply(style_calendar, axis=1), 
+            df_c.style.apply(lambda r: ['background-color: #ffc107; color: black' if col=='Dní do' and r['_alert'][0] else '' for col in r.index], axis=1), 
             use_container_width=True, hide_index=True, height=850,
-            column_config={"Titul": st.column_config.TextColumn("Titul", width="large")}
+            column_config={"Titul": st.column_config.TextColumn("Titul", width="medium")},
+            column_order=["Titul", "Earnings", "Dní do", "Dividenda", "Ex-Date", "Analytické", "RSI"]
         )
