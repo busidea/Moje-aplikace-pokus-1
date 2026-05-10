@@ -4,21 +4,14 @@ import yfinance as yf
 from datetime import datetime, date
 
 # Konfigurace stránky
-st.set_page_config(page_title="Scoring firem V85.5", layout="wide")
+st.set_page_config(page_title="Scoring firem V85.6", layout="wide")
 
-# --- KOMPLETNÍ CSS STYLING ---
+# --- STYLING ---
 st.markdown("""
     <style>
-    /* Zarovnání všech buněk vpravo */
     [data-testid="stDataFrame"] td { text-align: right !important; }
-    /* Titul (první sloupec) vlevo a tučně */
-    [data-testid="stDataFrame"] td:first-child { 
-        text-align: left !important; 
-        font-weight: bold !important; 
-    }
-    /* Hlavičky vpravo */
+    [data-testid="stDataFrame"] td:first-child { text-align: left !important; }
     [data-testid="stDataFrame"] th { text-align: right !important; }
-    /* Hlavička Titul vlevo */
     [data-testid="stDataFrame"] th:first-child { text-align: left !important; }
     </style>
     """, unsafe_allow_html=True)
@@ -37,7 +30,7 @@ def get_b_direct(val, h_list, b_list):
     return b_list[-1]
 
 def fmt(val, precision=1, is_pct=False):
-    if val is None or val == 0: return "0" + ("%" if is_pct else "")
+    if val is None or val == 0: return "0.0" + ("%" if is_pct else "")
     res = f"{val:.{precision}f}"
     return res + "%" if is_pct else res
 
@@ -56,12 +49,15 @@ def nacti_seznam(odkaz):
 
 df_raw = nacti_seznam(ODKAZ_NA_TABULKU)
 
-# --- 3. LEVÁ LIŠTA (16 PARAMETRŮ) ---
+# --- 3. LEVÁ LIŠTA ---
 st.sidebar.markdown("## **📊 Portfoliomanžer**")
 stranka = st.sidebar.radio("Zobrazení:", ["Scoring Matrix", "Kalendář & RSI"])
 st.sidebar.divider()
 filtr_kat = st.sidebar.selectbox("Filtr:", ["Portfolio", "Sledované", "Vše"], index=0)
 
+# Globální definice proměnných, aby aplikace nespadla v Kalendáři
+strategie = "🛡️ Konzervativní"
+zobrazit_body = False
 w_val, w_prof, w_growth, w_risk = 1.2, 1.5, 1.0, 1.8
 
 if stranka == "Scoring Matrix":
@@ -79,7 +75,6 @@ if stranka == "Scoring Matrix":
                     d.append({"h": h, "b": b})
                 return d
         
-        # Načtení všech 16 expanderů
         p_pe = vytvor_p("P/E", "pe", [12, 18, 25, 40, 999], [20, 15, 5, 0, -15])
         p_ps = vytvor_p("P/S", "ps", [1.5, 3, 6, 10, 999], [15, 10, 5, 0, -10])
         p_pb = vytvor_p("P/B", "pb", [1, 2.5, 4, 8, 999], [10, 7, 3, 0, -5])
@@ -111,15 +106,20 @@ def fetch_data(df_input):
         t = str(row.get('Ticker', '')).strip()
         if not t or t == "-": continue
         try:
-            tk = yf.Ticker(t); inf = tk.info
-            res.append({"t": t, "inf": inf, "kat": row.get('Kategorie'), "name": inf.get('longName', t)})
+            tk = yf.Ticker(t); inf = tk.info; hi = tk.history(period="1mo")
+            rsi = 50
+            if len(hi) > 14:
+                d = hi['Close'].diff(); g = d.where(d > 0, 0).rolling(14).mean(); l = -d.where(d < 0, 0).rolling(14).mean()
+                rsi = 100 - (100 / (1 + (g/l).iloc[-1])) if not l.iloc[-1] == 0 else 50
+            res.append({"t": t, "inf": inf, "rsi": rsi, "kat": row.get('Kategorie'), "earn": row.get('Earnings Day'), "name": inf.get('longName', t)})
         except: continue
     return res
 
 raw_data = fetch_data(df_raw)
 
 # --- 5. VÝPOČET ---
-m_rows, mapping_keys = [], ["P/E", "P/S", "P/B", "P/FCF", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Payout", "Potenciál"]
+m_rows, c_rows, today = [], [], date.today()
+mapping_keys = ["P/E", "P/S", "P/B", "P/FCF", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Payout", "Potenciál"]
 pct_cols = ["Změna", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Payout", "Potenciál"]
 
 for item in raw_data:
@@ -130,6 +130,9 @@ for item in raw_data:
         v = inf.get(k)
         return float(v) * mult if v is not None and str(v) != "None" else 0.0
 
+    # OPRAVA DIVIDENDY: yf vrací 0.035 pro 3.5%
+    div_val = sg("dividendYield") * 100
+
     raw_vals = {
         "Cena": sg("currentPrice"), "Změna": ((sg("currentPrice")/sg("previousClose", 1.0))-1)*100 if sg("previousClose") else 0,
         "P/E": sg("trailingPE") or sg("forwardPE"), "P/S": sg("priceToSalesTrailing12Months"), 
@@ -138,39 +141,47 @@ for item in raw_data:
         "Č-Marže": sg("profitMargins", 100), "Č-Marže 3Y": sg("profitMargins", 91),
         "ROE": sg("returnOnEquity", 100), "ROE 3Y": sg("returnOnEquity", 93),
         "Tržby y/y": sg("revenueGrowth", 100), "Zisk y/y": sg("earningsGrowth", 100),
-        "Dluh D/E": sg("debtToEquity"), "Div. výnos": sg("dividendYield", 100), 
+        "Dluh D/E": sg("debtToEquity"), "Div. výnos": div_val, 
         "Payout": sg("payoutRatio", 100), "Potenciál": ((sg("targetMeanPrice")/sg("currentPrice", 1.0))-1)*100 if sg("targetMeanPrice") else 0
     }
 
-    row_v = {"Titul": name, "Type": "Value", "_change": raw_vals["Změna"], "Score": 0}
-    row_p = {"Titul": f"   └ body ({t})", "Type": "Points", "Score": 0}
-    
+    # MATRIX
+    row_v = {"Titul": name, "Type": "Value", "_change": raw_vals["Změna"]}
+    row_p = {"Titul": f"└ body ({t})", "Type": "Points", "_change": 0}
     total = 0
     for k in mapping_keys:
-        # Výpočet bodů
-        if strategie == "Vlastní":
+        if stranka == "Scoring Matrix" and strategie == "Vlastní":
             p_map = {"P/E":p_pe,"P/S":p_ps,"P/B":p_pb,"P/FCF":p_pfcf,"H-Marže":p_gm,"H-Marže 3Y":p_gm3y,"Č-Marže":p_nm,"Č-Marže 3Y":p_nm3y,"ROE":p_roe,"ROE 3Y":p_roe3y,"Tržby y/y":p_rev,"Zisk y/y":p_eps,"Dluh D/E":p_deb,"Div. výnos":p_div,"Payout":p_pay,"Potenciál":p_pot}
             w_map = {"v":w_val,"p":w_prof,"g":w_growth,"r":w_risk}
             vw = w_map["v"] if k in ["P/E","P/S","P/B","P/FCF"] else (w_map["p"] if "Marže" in k or "ROE" in k else (w_map["g"] if k in ["Tržby y/y","Zisk y/y","Div. výnos","Potenciál"] else w_map["r"]))
             b = get_b(raw_vals[k], p_map[k]) * vw
         else:
             b = get_b_direct(raw_vals[k], [15, 25, 40], [15, 5, -10])
-        
         total += b
         row_v[k] = fmt(raw_vals[k], 1, k in pct_cols)
         row_p[k] = str(int(round(b)))
         row_v[f"_raw_{k}"] = raw_vals[k]
-
     row_v["Cena"], row_v["Změna"], row_v["Score"] = fmt(raw_vals["Cena"], 2), fmt(raw_vals["Změna"], 1, True), int(round(total))
     row_p["Cena"], row_p["Změna"], row_p["Score"] = "", "", int(round(total))
-    m_rows.append(row_v)
+    m_rows.append(row_v); 
     if zobrazit_body: m_rows.append(row_p)
+
+    # KALENDÁŘ
+    ex_dt = datetime.fromtimestamp(inf.get('exDividendDate')).date() if inf.get('exDividendDate') else None
+    c_rows.append({
+        "Titul": f"{name} ({t})", "Earnings": item["earn"], 
+        "Dní do": (pd.to_datetime(item["earn"], dayfirst=True).date() - today).days if item["earn"] != "-" else "-",
+        "Dividenda": f"{sg('dividendRate'):.2f} {inf.get('currency')}", 
+        "Ex-Date": ex_dt.strftime('%d.%m.%Y') if ex_dt else "-", 
+        "Analytické": inf.get('recommendationKey', '-').replace('_', ' ').title(), 
+        "RSI": int(item['rsi']), "_rsi": item["rsi"]
+    })
 
 # --- 6. VYKRESLENÍ ---
 if stranka == "Scoring Matrix":
     df = pd.DataFrame(m_rows)
     if not df.empty:
-        def style_table(r):
+        def style_matrix(r):
             s = [''] * len(r)
             if r["Type"] == "Points": return ['color: #888; font-style: italic; background-color: #f8f9fa'] * len(r)
             for i, col in enumerate(r.index):
@@ -181,10 +192,12 @@ if stranka == "Scoring Matrix":
             return s
 
         st.dataframe(
-            df.style.apply(style_table, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn"),
+            df.style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn"),
             use_container_width=True, hide_index=True, height=850,
             column_config={"Titul": st.column_config.TextColumn("Titul", width="medium")},
             column_order=["Titul", "Cena", "Změna"] + mapping_keys + ["Score"]
         )
 else:
-    st.info("Kalendář je připraven v datech.")
+    df_c = pd.DataFrame(c_rows)
+    if not df_c.empty:
+        st.dataframe(df_c, use_container_width=True, hide_index=True, height=850)
