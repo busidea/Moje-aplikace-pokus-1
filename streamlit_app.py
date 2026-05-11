@@ -2,15 +2,24 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import numpy as np
-from datetime import date
+from datetime import datetime, date
 
 # --- KONFIGURACE ---
-st.set_page_config(page_title="Valuační Matrix V86.7", layout="wide")
+st.set_page_config(page_title="Valuační Portál V86.8", layout="wide")
 
-# --- POMOCNÉ FUNKCE ---
+st.markdown("""
+    <style>
+    [data-testid="stDataFrame"] td { text-align: right !important; }
+    [data-testid="stDataFrame"] td:first-child { 
+        text-align: left !important; font-weight: bold !important; color: #003366 !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- 1. POMOCNÉ FUNKCE ---
 def safe_float(val):
     try:
-        if val is None or str(val) == "nan" or str(val) == "None": return 0.0
+        if val is None or str(val).lower() in ["nan", "none", "-", ""]: return 0.0
         return float(val)
     except: return 0.0
 
@@ -20,107 +29,125 @@ def nacti_seznam(odkaz):
         csv_url = odkaz.replace('/edit?usp=sharing', '/export?format=csv')
         df = pd.read_csv(csv_url)
         df.columns = [c.strip() for c in df.columns]
+        df['Ticker'] = df['Ticker'].astype(str).str.upper()
         return df
     except: return pd.DataFrame()
 
+# --- 2. DATA FETCH ---
 @st.cache_data(ttl=3600)
-def fetch_data(df_input):
+def fetch_all_data(df_input):
     res = []
     for row in df_input.to_dict('records'):
-        t = str(row.get('Ticker', '')).strip().upper()
-        if not t or t == "-" or t == "NAN": continue
+        t = str(row.get('Ticker', '')).strip()
+        if not t or t == "-": continue
         try:
             tk = yf.Ticker(t)
             inf = tk.info
-            res.append({"t": t, "inf": inf, "kat": str(row.get('Kategorie')), "name": inf.get('longName', t)})
+            # Pro RSI potřebujeme historii
+            hi = tk.history(period="1mo")
+            rsi = 50
+            if len(hi) > 14:
+                d = hi['Close'].diff(); g = d.where(d > 0, 0).rolling(14).mean(); l = -d.where(d < 0, 0).rolling(14).mean()
+                rsi = 100 - (100 / (1 + (g.iloc[-1]/l.iloc[-1]))) if l.iloc[-1] != 0 else 50
+            
+            res.append({
+                "t": t, "inf": inf, "rsi": rsi, 
+                "kat": str(row.get('Kategorie')), 
+                "earn": row.get('Earnings Day'), 
+                "name": inf.get('longName', t)
+            })
         except: continue
     return res
 
-# --- GLOBÁLNÍ DATA ---
+# --- 3. NAČTENÍ A FILTR ---
 ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
-df_raw = nacti_seznam(ODKAZ_NA_TABULKU)
+df_raw_list = nacti_seznam(ODKAZ_NA_TABULKU)
 
-# --- SIDEBAR ---
-st.sidebar.markdown("## **📈 Analýza Hodnoty**")
+st.sidebar.markdown("## **📊 Portfoliomanžer**")
 stranka = st.sidebar.radio("Zobrazení:", ["Scoring Matrix", "Kalendář & RSI", "Vnitřní hodnota (IV)"])
 filtr_kat = st.sidebar.selectbox("Filtr:", ["Portfolio", "Sledované", "Vše"], index=0)
 
-# Globální parametry pro IV (vstupy z tvého Excelu)
-with st.sidebar.expander("⚙️ Nastavení modelů (IV)", expanded=False):
-    g_default = st.slider("Očekávaný růst (g) %", 0, 15, 3) / 100
-    wacc_default = st.slider("Diskontní sazba (WACC) %", 5, 15, 8) / 100
-    bond_yield = st.number_input("Výnos 20y dluhopisů (Y)", value=4.4)
-    w_graham = st.slider("Váha: Graham", 0.0, 1.0, 0.3)
-    w_dcf = st.slider("Váha: DCF/FCF", 0.0, 1.0, 0.4)
-    w_mult = st.slider("Váha: Multiples", 0.0, 1.0, 0.3)
+all_data = fetch_all_data(df_raw_list)
+filtered_data = [d for d in all_data if filtr_kat == "Vše" or d["kat"] == filtr_kat]
 
-# --- LOGIKA VÝPOČTU VNITŘNÍ HODNOTY ---
-raw_data = fetch_data(df_raw)
-iv_rows = []
-
-for item in raw_data:
-    if filtr_kat != "Vše" and item["kat"] != filtr_kat: continue
-    inf, t = item["inf"], item["t"]
-    
-    curr_price = safe_float(inf.get('currentPrice'))
-    eps = safe_float(inf.get('trailingEps'))
-    bvps = safe_float(inf.get('bookValue'))
-    fcf = safe_float(inf.get('freeCashflow'))
-    shares = safe_float(inf.get('sharesOutstanding'))
-    ps_hist = safe_float(inf.get('priceToSalesTrailing12Months')) # aktuální pro srovnání
-    
-    # 1. Grahamova Formule (V = (EPS * (8.5 + 2g) * 4.4) / Y)
-    iv_graham_f = (eps * (8.5 + 2 * (g_default * 100)) * 4.4) / bond_yield if eps > 0 else 0
-    
-    # 2. Grahamovo číslo (sqrt(22.5 * EPS * BVPS))
-    iv_graham_n = np.sqrt(22.5 * eps * bvps) if (eps > 0 and bvps > 0) else 0
-    
-    # 3. FCF Model (V = (FCF * (1+g)) / (WACC - g) / shares)
-    iv_fcf = 0
-    if shares > 0 and (wacc_default > g_default):
-        total_fcf_val = (fcf * (1 + g_default)) / (wacc_default - g_default)
-        iv_fcf = total_fcf_val / shares
-    
-    # 4. Multiples (P/E konzervativní odhad - např. 15x EPS)
-    iv_mult = eps * 15 
-
-    # Průměrná vnitřní hodnota (Vážená)
-    # Pokud je některá metoda 0 (nejsou data), váha se přerozdělí nebo ignoruje
-    methods = [iv_graham_f, iv_fcf, iv_mult]
-    weights = [w_graham, w_dcf, w_mult]
-    
-    avg_iv = sum(m * w for m, w in zip(methods, weights)) / sum(weights)
-    upside = ((avg_iv / curr_price) - 1) * 100 if curr_price > 0 else 0
-
-    iv_rows.append({
-        "Titul": item["name"],
-        "Cena": curr_price,
-        "Graham F.": round(iv_graham_f, 2),
-        "Graham č.": round(iv_graham_n, 2),
-        "FCF Model": round(iv_fcf, 2),
-        "Multiples": round(iv_mult, 2),
-        "Férová cena": round(avg_iv, 2),
-        "Potenciál": round(upside, 1)
-    })
-
-# --- ZOBRAZENÍ ---
+# --- 4. STRÁNKA: VNITŘNÍ HODNOTA (IV) ---
 if stranka == "Vnitřní hodnota (IV)":
-    st.subheader("🎯 Odhad vnitřní hodnoty akcií")
-    st.info("Výpočet kombinuje Grahamovu formuli, FCF model a srovnávací multiples. Váhy a parametry lze upravit v levém panelu.")
+    st.subheader("🎯 Odhad vnitřní hodnoty akcií (Intrinsic Value)")
     
-    df_iv = pd.DataFrame(iv_rows)
+    with st.sidebar.expander("⚙️ Nastavení modelů (IV)", expanded=True):
+        g_pct = st.slider("Očekávaný růst (g) %", 0.0, 15.0, 3.0) / 100
+        re_pct = st.slider("Požadovaná výnosnost (Re/WACC) %", 5.0, 15.0, 8.5) / 100
+        y_bond = st.number_input("Výnos 20y dluhopisů (Y)", value=4.4)
+        st.divider()
+        w_graham = st.slider("Váha: Graham", 0.0, 1.0, 0.2)
+        w_fcf = st.slider("Váha: FCF Model", 0.0, 1.0, 0.4)
+        w_rim = st.slider("Váha: RIM Model", 0.0, 1.0, 0.4)
+
+    iv_results = []
+    for item in filtered_data:
+        inf = item["inf"]
+        price = safe_float(inf.get('currentPrice'))
+        eps = safe_float(inf.get('trailingEps'))
+        bvps = safe_float(inf.get('bookValue'))
+        fcf = safe_float(inf.get('freeCashflow'))
+        shares = safe_float(inf.get('sharesOutstanding'))
+        
+        # A) Graham Formula (Upravená)
+        v_graham = (eps * (8.5 + 2 * (g_pct*100)) * 4.4) / y_bond if eps > 0 else 0
+        
+        # B) FCF Gordon Model
+        v_fcf = 0
+        if shares > 0 and re_pct > g_pct:
+            v_fcf = ((fcf * (1 + g_pct)) / (re_pct - g_pct)) / shares
+            
+        # C) RIM (Residual Income Model) - zjednodušený z Excelu
+        # V = BVPS + (EPS - Re * BVPS) / (Re - g)
+        v_rim = 0
+        if bvps > 0 and re_pct > g_pct:
+            residual_income = eps - (re_pct * bvps)
+            v_rim = bvps + (residual_income / (re_pct - g_pct))
+
+        # Vážený průměr
+        total_w = w_graham + w_fcf + w_rim
+        if total_w > 0:
+            fair_price = (v_graham * w_graham + v_fcf * w_fcf + v_rim * w_rim) / total_w
+        else:
+            fair_price = 0
+            
+        upside = ((fair_price / price) - 1) * 100 if price > 0 else 0
+        
+        iv_results.append({
+            "Titul": item["name"],
+            "Akt. Cena": price,
+            "Graham F.": round(v_graham, 2),
+            "FCF Model": round(v_fcf, 2),
+            "RIM Model": round(v_rim, 2),
+            "Férová cena": round(fair_price, 2),
+            "Potenciál": round(upside, 1)
+        })
+
+    df_iv = pd.DataFrame(iv_results)
     if not df_iv.empty:
-        def style_iv(val):
+        def style_upside(val):
             color = '#1b5e20' if val > 10 else ('#b71c1c' if val < -10 else '#333')
             return f'color: {color}; font-weight: bold'
 
+        # Použití map místo applymap pro kompatibilitu s novějším Pandas
         st.dataframe(
-            df_iv.style.applymap(style_iv, subset=['Potenciál'])
-            .background_gradient(subset=['Potenciál'], cmap='RdYlGn', vmin=-50, vmax=50),
-            use_container_width=True, hide_index=True
+            df_iv.style.map(style_upside, subset=['Potenciál'])
+            .background_gradient(subset=['Potenciál'], cmap='RdYlGn', vmin=-30, vmax=30),
+            use_container_width=True, hide_index=True, height=600
         )
-        
+    else:
+        st.warning("Žádná data pro výpočet vnitřní hodnoty.")
+
+# --- 5. OSTATNÍ STRÁNKY (Zkráceně pro přehlednost) ---
 elif stranka == "Scoring Matrix":
-    st.write("Zde by byl váš původní Scoring Matrix kód...")
-else:
-    st.write("Zde by byl váš původní Kalendář kód...")
+    st.subheader("📊 Scoring Matrix")
+    # Zde by pokračoval váš kód pro Scoring Matrix (definice p_pe, atd.)
+    st.info("Zde je prostor pro váš původní kód Scoring Matrixu.")
+
+elif stranka == "Kalendář & RSI":
+    st.subheader("📅 Kalendář událostí a RSI")
+    # Zde by pokračoval váš kód pro Kalendář
+    st.info("Zde je prostor pro váš původní kód Kalendáře.")
