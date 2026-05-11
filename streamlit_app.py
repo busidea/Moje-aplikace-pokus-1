@@ -5,7 +5,7 @@ import numpy as np
 from datetime import date
 
 # --- 1. KONFIGURACE A STYL ---
-st.set_page_config(page_title="Valuační Terminál V92.0", layout="wide")
+st.set_page_config(page_title="Valuační Terminál V92.1", layout="wide")
 
 st.markdown("""
     <style>
@@ -42,7 +42,7 @@ def fetch_all_data(df_input):
         try:
             tk = yf.Ticker(t)
             inf = tk.info
-            # RSI pro Kalendář
+            # RSI pro technický náhled
             hi = tk.history(period="1mo")
             rsi = 50
             if len(hi) > 14:
@@ -71,14 +71,16 @@ filtered_data = [d for d in all_data if filtr_kat == "Vše" or d["kat"] == filtr
 
 # --- 4. LOGIKA: VNITŘNÍ HODNOTA (IV) ---
 if stranka == "Vnitřní hodnota (IV)":
-    st.subheader("🎯 Komplexní ocenění společností")
+    st.subheader("🎯 Komplexní ocenění společností (Intrinsic Value)")
     
-    with st.sidebar.expander("⚙️ Parametry modelů", expanded=True):
+    with st.sidebar.expander("⚙️ Nastavení globálních parametrů", expanded=True):
         g_pct = st.slider("Dlouhodobý růst (g) %", 0.0, 10.0, 3.0) / 100
-        re_pct = st.slider("Požadovaná výnosnost (Re/WACC) %", 5.0, 15.0, 9.0) / 100
-        y_bond = st.number_input("Výnos 20y dluhopisů (pro Grahama)", value=4.4)
-        target_ps = st.slider("Cílový P/S násobek (pro růstové)", 0.5, 10.0, 3.0)
-        target_pe = st.slider("Cílový P/E násobek (pro stabilní)", 5, 30, 15)
+        re_pct = st.slider("Požadovaná výnosnost (Re) %", 5.0, 15.0, 9.0) / 100
+        y_bond = st.number_input("Výnos 20y dluhopisů (pro Grahamův vzorec)", value=4.4)
+        st.divider()
+        st.write("**Cílové násobky (Multiples):**")
+        target_pe = st.slider("Cílové P/E (pro ziskové firmy)", 5, 40, 15)
+        target_ps = st.slider("Cílové P/S (pro růstové/ztrátové)", 0.5, 15.0, 3.0)
         
     iv_results = []
     for item in filtered_data:
@@ -91,22 +93,27 @@ if stranka == "Vnitřní hodnota (IV)":
         shares = safe_float(inf.get('sharesOutstanding'))
         div = safe_float(inf.get('dividendRate'))
 
-        # A) Ziskové metody (Graham & Multiples P/E)
+        # 1. PILÍŘ: ZISKOVÉ METODY (Graham, Multiples P/E, EVA základ)
         v_graham = (eps * (8.5 + 2 * (g_pct*100)) * 4.4) / y_bond if eps > 0 else 0
         v_pe = eps * target_pe if eps > 0 else 0
-        val_profit = max(v_graham, v_pe)
+        # EVA zjednodušeně: (EPS - (Re * BVPS)) / (Re - g) + BVPS (podobné RIM)
+        v_eva = bvps + ((eps - (re_pct * bvps)) / (re_pct - g_pct)) if (bvps > 0 and re_pct > g_pct) else 0
+        
+        val_profit = max(v_graham, v_pe, v_eva) if (v_graham > 0 or v_pe > 0 or v_eva > 0) else 0
 
-        # B) Cashflow metody (FCF & DDM)
+        # 2. PILÍŘ: CASHFLOW METODY (DCF/FCF, DDM)
         v_fcf = ((fcf * (1 + g_pct)) / (re_pct - g_pct)) / shares if (shares > 0 and re_pct > g_pct and fcf > 0) else 0
         v_ddm = (div * (1 + g_pct)) / (re_pct - g_pct) if (div > 0 and re_pct > g_pct) else 0
-        val_cash = max(v_fcf, v_ddm)
+        
+        val_cash = max(v_fcf, v_ddm) if (v_fcf > 0 or v_ddm > 0) else 0
 
-        # C) Majetkové a tržební (P/S, NAV, EVA základ)
+        # 3. PILÍŘ: TRŽEBNÍ A MAJETKOVÉ (P/S Multiples, NAV) - KLÍČOVÉ PRO EHANG
         v_ps = (rev / shares) * target_ps if (shares > 0 and rev > 0) else 0
         v_nav = bvps if bvps > 0 else 0
-        val_assets = max(v_ps, v_nav)
+        
+        val_assets = max(v_ps, v_nav) if (v_ps > 0 or v_nav > 0) else 0
 
-        # Dynamický vážený průměr (rovnoměrný mezi dostupné pilíře)
+        # FINÁLNÍ VÁŽENÝ PRŮMĚR (Dynamický - bere jen ty pilíře, co mají data)
         pillars = [p for p in [val_profit, val_cash, val_assets] if p > 0]
         fair_price = sum(pillars) / len(pillars) if pillars else 0
         upside = ((fair_price / price) - 1) * 100 if price > 0 else 0
@@ -114,9 +121,9 @@ if stranka == "Vnitřní hodnota (IV)":
         iv_results.append({
             "Titul": item["name"],
             "Cena": round(price, 2),
-            "Ziskové (P/E)": int(val_profit) if val_profit > 0 else 0,
-            "Cashflow": int(val_cash) if val_cash > 0 else 0,
-            "Tržby/Majetek": int(val_assets) if val_assets > 0 else 0,
+            "Ziskové (P/E, EVA)": int(val_profit) if val_profit > 0 else 0,
+            "Cashflow (FCF)": int(val_cash) if val_cash > 0 else 0,
+            "Tržby/Majetek (P/S)": int(val_assets) if val_assets > 0 else 0,
             "Férová cena": int(fair_price),
             "Potenciál": round(upside, 1),
             "Potenciál %": f"{round(upside, 1)}%"
@@ -124,25 +131,24 @@ if stranka == "Vnitřní hodnota (IV)":
 
     df_iv = pd.DataFrame(iv_results)
     if not df_iv.empty:
-        # Nahrazení nul pomlčkami pro čistý vzhled
-        for col in ["Ziskové (P/E)", "Cashflow", "Tržby/Majetek"]:
+        # Přeformátování nul na pomlčky pro čistý vzhled
+        for col in ["Ziskové (P/E, EVA)", "Cashflow (FCF)", "Tržby/Majetek (P/S)"]:
             df_iv[col] = df_iv[col].apply(lambda x: "-" if x == 0 else x)
 
         st.dataframe(
             df_iv.style.map(lambda x: f'color: {"#1b5e20" if x > 10 else ("#b71c1c" if x < -10 else "#333")}; font-weight: bold', subset=['Potenciál'])
             .background_gradient(subset=['Potenciál'], cmap='RdYlGn', vmin=-40, vmax=40),
             use_container_width=True, hide_index=True, height=600,
-            column_order=["Titul", "Cena", "Ziskové (P/E)", "Cashflow", "Tržby/Majetek", "Férová cena", "Potenciál %"]
+            column_order=["Titul", "Cena", "Ziskové (P/E, EVA)", "Cashflow (FCF)", "Tržby/Majetek (P/S)", "Férová cena", "Potenciál %"]
         )
     else:
-        st.info("Zatím nejsou k dispozici data pro zvolený filtr.")
+        st.info("Žádná data k zobrazení. Zkontrolujte filtry.")
 
 # --- 5. OSTATNÍ STRÁNKY ---
 elif stranka == "Scoring Matrix":
     st.subheader("📊 Scoring Matrix")
-    st.write("Zde je prostor pro váš stávající bodovací systém (P/E, P/S, Yield atd.).")
+    st.info("Zde bude váš bodovací systém.")
 
 elif stranka == "Kalendář & RSI":
     st.subheader("📅 Kalendář událostí a RSI")
-    st.info("Přehled blížících se výsledků a technického indikátoru RSI.")
-    # (Zde by byl kód pro kalendář, který jsme ladili dříve)
+    st.info("Přehled termínů výsledků a technického stavu akcií.")
