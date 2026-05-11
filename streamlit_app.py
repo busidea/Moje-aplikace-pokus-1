@@ -96,13 +96,16 @@ if stranka == "Vnitřní hodnota (IV)":
         shares = safe_float(inf.get('sharesOutstanding'))
         div = safe_float(inf.get('dividendRate'))
         
-        # Výpočty metod
+        # Graham (výpočet jen při kladném EPS)
         v_graham = (eps * (8.5 + 2 * (g_pct*100)) * 4.4) / y_bond if eps > 0 else 0
-        v_fcf = ((fcf * (1 + g_pct)) / (re_pct - g_pct)) / shares if (shares > 0 and re_pct > g_pct) else 0
+        # FCF
+        v_fcf = ((fcf * (1 + g_pct)) / (re_pct - g_pct)) / shares if (shares > 0 and re_pct > g_pct and fcf > 0) else 0
+        # RIM (tolerantnější výpočet)
         v_rim = bvps + ((eps - (re_pct * bvps)) / (re_pct - g_pct)) if (bvps > 0 and re_pct > g_pct) else 0
+        # DDM
         v_ddm = (div * (1 + g_pct)) / (re_pct - g_pct) if (div > 0 and re_pct > g_pct) else 0
 
-        # Dynamický průměr (ignoruje nuly)
+        # Dynamický průměr
         methods = [(v_graham, w_graham), (v_fcf, w_fcf), (v_rim, w_rim), (v_ddm, w_ddm)]
         active_vals = [m[0] * m[1] for m in methods if m[0] > 0]
         active_weights = [m[1] for m in methods if m[0] > 0]
@@ -112,27 +115,28 @@ if stranka == "Vnitřní hodnota (IV)":
         
         iv_results.append({
             "Titul": item["name"],
-            "Cena": round(price, 1),
+            "Cena": round(price, 2),
             "Graham": int(v_graham) if v_graham > 0 else 0,
             "FCF": int(v_fcf) if v_fcf > 0 else 0,
             "RIM": int(v_rim) if v_rim > 0 else 0,
             "DDM": int(v_ddm) if v_ddm > 0 else 0,
             "Férová cena": int(fair_price),
-            "Potenciál %": round(upside, 1)
+            "Potenciál": round(upside, 1), # Číslo pro gradient
+            "Potenciál %": f"{round(upside, 1)}%" # Text pro zobrazení
         })
 
     df_iv = pd.DataFrame(iv_results)
     if not df_iv.empty:
-        # Přeformátování 0 na pomlčku pro DDM a další, aby to bylo přehlednější
+        # Přeformátování nul na pomlčky
         for col in ["Graham", "FCF", "RIM", "DDM"]:
-            df_iv[col] = df_iv[col].apply(lambda x: "-" if x == 0 else x)
+            df_iv[col] = df_iv[col].apply(lambda x: "-" if (x == 0 or x == "0") else x)
 
         st.dataframe(
-            df_iv.style.map(lambda x: f'color: {"#1b5e20" if x > 10 else ("#b71c1c" if x < -10 else "#333")}; font-weight: bold', subset=['Potenciál %'])
-            .background_gradient(subset=['Potenciál %'], cmap='RdYlGn', vmin=-30, vmax=30),
-            use_container_width=True, hide_index=True, height=600
+            df_iv.style.map(lambda x: f'color: {"#1b5e20" if x > 10 else ("#b71c1c" if x < -10 else "#333")}; font-weight: bold', subset=['Potenciál'])
+            .background_gradient(subset=['Potenciál'], cmap='RdYlGn', vmin=-30, vmax=30),
+            use_container_width=True, hide_index=True, height=600,
+            column_order=["Titul", "Cena", "Graham", "FCF", "RIM", "DDM", "Férová cena", "Potenciál %"]
         )
-
 # --- 5. OSTATNÍ STRÁNKY (SCORING & KALENDÁŘ) ---
 elif stranka == "Scoring Matrix":
     st.subheader("📊 Scoring Matrix")
