@@ -5,7 +5,7 @@ import numpy as np
 from datetime import datetime
 
 # --- 1. KONFIGURACE A STYL ---
-st.set_page_config(page_title="Investment Hub V98.0", layout="wide")
+st.set_page_config(page_title="Investment Hub V98.1", layout="wide")
 
 st.markdown("""
     <style>
@@ -41,11 +41,12 @@ def fetch_all_data(df_input):
         try:
             tk = yf.Ticker(t)
             inf = tk.info
-            # RSI Výpočet
             hi = tk.history(period="1mo")
             rsi = 50
             if len(hi) > 14:
-                d = hi['Close'].diff(); g = d.where(d > 0, 0).rolling(14).mean(); l = -d.where(d < 0, 0).rolling(14).mean()
+                d = hi['Close'].diff()
+                g = d.where(d > 0, 0).rolling(14).mean()
+                l = -d.where(d < 0, 0).rolling(14).mean()
                 rsi = 100 - (100 / (1 + (g.iloc[-1]/l.iloc[-1]))) if l.iloc[-1] != 0 else 50
             
             res.append({
@@ -87,21 +88,22 @@ if stranka == "🏠 Scoring Matrix":
             "Kategorie": item["kat"],
             "MOAT": item["moat"],
             "Vlastní Score": item["score"],
-            "P/E (Live)": round(safe_float(inf.get('trailingPE')), 1) if inf.get('trailingPE') else "-",
-            "P/S (Live)": round(safe_float(inf.get('priceToSalesTrailing12Months')), 1) if inf.get('priceToSalesTrailing12Months') else "-"
+            "P/E": round(safe_float(inf.get('trailingPE')), 1) if inf.get('trailingPE') else "-",
+            "P/S": round(safe_float(inf.get('priceToSalesTrailing12Months')), 1) if inf.get('priceToSalesTrailing12Months') else "-"
         })
     
     df_m = pd.DataFrame(matrix_results)
     
-    def color_score(val):
-        if val == "-": return ""
-        v = float(val)
-        color = '#2ecc71' if v >= 8 else ('#f1c40f' if v >= 5 else '#e74c3c')
-        return f'color: {color}; font-weight: bold; font-size: 1.1rem;'
+    def style_score(val):
+        try:
+            v = float(val)
+            color = '#2ecc71' if v >= 8 else ('#f1c40f' if v >= 5 else '#e74c3c')
+            return f'color: {color}; font-weight: bold;'
+        except: return ''
 
     if not df_m.empty:
         st.dataframe(
-            df_m.style.applymap(color_score, subset=['Vlastní Score'])
+            df_m.style.map(style_score, subset=['Vlastní Score'])
             .bar(subset=['Změna %'], color=['#ffcdd2', '#c8e6c9'], align='mid'),
             use_container_width=True, hide_index=True
         )
@@ -151,7 +153,7 @@ elif stranka == "🎯 Vnitřní hodnota (IV)":
         fair_price = weighted_sum / active_weights if active_weights > 0 else 0
         upside = ((fair_price / price) - 1) * 100 if price > 0 else 0
 
-        row = {"Titul": item["name"], "Cena": price, "P1: Zisk": int(val_p1), "P2: CF": int(val_p2), "P3: Majetek": int(val_p3), "Férová cena": int(fair_price), "Potenciál_num": upside, "Potenciál %": f"{upside:.1f}%"}
+        row = {"Titul": item["name"], "Cena": price, "P1": int(val_p1), "P2": int(val_p2), "P3": int(val_p3), "Férová cena": int(fair_price), "Potenciál_num": upside, "Potenciál %": f"{upside:.1f}%"}
         if show_details:
             row.update({"› Graham": int(v_graham), "› P/E": int(v_pe), "› RIM": int(v_rim), "› FCF": int(v_fcf), "› DDM": int(v_ddm), "› P/S": int(v_ps), "› NAV": int(v_nav)})
         iv_results.append(row)
@@ -168,7 +170,7 @@ elif stranka == "🎯 Vnitřní hodnota (IV)":
             return s
         
         cols_to_dash = [c for c in df_iv.columns if c not in ["Titul", "Cena", "Potenciál_num", "Potenciál %"]]
-        for c in cols_to_dash: df_iv[c] = df_iv[c].apply(lambda x: "-" if x <= 0 else x)
+        for c in cols_to_dash: df_iv[c] = df_iv[c].apply(lambda x: "-" if (isinstance(x, (int, float)) and x <= 0) else x)
         
         st.dataframe(df_iv.style.apply(apply_iv_styles, axis=1).format({"Cena": "{:.2f}"}), use_container_width=True, hide_index=True)
 
@@ -181,14 +183,14 @@ elif stranka == "📅 Kalendář & RSI":
         cal_data.append({
             "Titul": item["name"],
             "Ticker": item["t"],
-            "RSI (14d)": round(item["rsi"], 1),
+            "RSI (14d)": item["rsi"],
             "Earnings Day": item["earn"] if item["earn"] else "Nenastaveno"
         })
     
     df_cal = pd.DataFrame(cal_data)
     
-    def color_rsi(val):
-        color = '#e74c3c' if val >= 70 else ('#2ecc71' if val <= 30 else '#333')
+    def style_rsi(val):
+        color = '#e74c3c' if val >= 70 else ('#2ecc71' if val <= 35 else '#333')
         return f'color: {color}; font-weight: bold;'
 
-    st.dataframe(df_cal.style.applymap(color_rsi, subset=['RSI (14d)']), use_container_width=True, hide_index=True)
+    st.dataframe(df_cal.style.map(style_rsi, subset=['RSI (14d)']).format({"RSI (14d)": "{:.1f}"}), use_container_width=True, hide_index=True)
