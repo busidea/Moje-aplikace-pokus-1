@@ -3,7 +3,7 @@ import pandas as pd
 import yfinance as yf
 
 # --- 1. KONFIGURACE A STYL ---
-st.set_page_config(page_title="Valuační Terminál V96.2", layout="wide")
+st.set_page_config(page_title="Valuační Terminál V96.3", layout="wide")
 
 st.markdown("""
     <style>
@@ -60,18 +60,13 @@ if stranka == "Vnitřní hodnota (IV)":
     
     with st.expander("ℹ️ Jak se počítá férová cena?"):
         st.write("**Férová cena = (P1 × w1 + P2 × w2 + P3 × w3) / (součet aktivních vah)**")
-        st.caption("Pokud pilíř nemá data, jeho váha se automaticky přerozdělí mezi ostatní pilíře. TC (Tržní cena) je modrá pro odlišení od výpočtů.")
+        st.caption("Modrá barva označuje tržní cenu (TC). Titul a Potenciál se barví podle toho, zda je akcie podhodnocená (zelená) nebo nadhodnocená (červená).")
 
-    # --- BOČNÍ PANEL: VÁHY S KONTROLOU ---
-    with st.sidebar.expander("⚖️ Váhy pilířů (Kontrola 100 %)", expanded=False):
-        w1 = st.slider("Váha P1 (Zisk)", 0, 100, 33)
+    # --- BOČNÍ PANEL: VÁHY ---
+    with st.sidebar.expander("⚖️ Nastavení vah pilířů", expanded=False):
+        w1 = st.slider("Váha P1 (Ziskové)", 0, 100, 33)
         w2 = st.slider("Váha P2 (Cashflow)", 0, 100, 33)
-        w3 = st.slider("Váha P3 (Tržby/Majetek)", 0, 100, 34)
-        soucet_vah = w1 + w2 + w3
-        if soucet_vah == 100:
-            st.success(f"Součet: {soucet_vah}% (Ideální)")
-        else:
-            st.warning(f"Součet: {soucet_vah}% (Upravte na 100)")
+        w3 = st.slider("Váha P3 (Majetek)", 0, 100, 34)
 
     with st.sidebar.expander("⚙️ Globální parametry", expanded=True):
         g_pct = st.slider("Růst (g) %", 0.0, 10.0, 3.0) / 100
@@ -134,9 +129,7 @@ if stranka == "Vnitřní hodnota (IV)":
         def apply_all_styles(row):
             styles = [''] * len(row)
             up = row["Potenciál_num"]
-            # Pozadí pro Titul a Potenciál
             bg = 'background-color: #d4edda' if up > 0 else ('background-color: #f8d7da' if up < 0 else '')
-            # TC modrá
             tc = 'background-color: #e3f2fd; color: #0d47a1; font-weight: bold'
             
             for i, col in enumerate(row.index):
@@ -144,7 +137,6 @@ if stranka == "Vnitřní hodnota (IV)":
                 if col == "Cena": styles[i] = tc
             return styles
 
-        # Úklid nul
         cols_to_dash = [c for c in df_iv.columns if c not in ["Titul", "Cena", "Potenciál_num", "Potenciál %"]]
         for c in cols_to_dash: df_iv[c] = df_iv[c].apply(lambda x: "-" if x <= 0 else x)
 
@@ -158,7 +150,6 @@ if stranka == "Vnitřní hodnota (IV)":
             use_container_width=True, hide_index=True, height=600, column_order=column_order
         )
 
-# --- 5. SCORING (Příprava) ---
 elif stranka == "Scoring Matrix":
     st.subheader("📊 Scoring Matrix")
-    st.info("Zde bude bodovací model postavený na kvalitativních datech.")
+    st.info("Zde bude váš kvalitativní model.")
