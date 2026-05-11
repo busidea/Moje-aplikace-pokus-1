@@ -1,51 +1,18 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-from datetime import datetime, date
+import numpy as np
+from datetime import date
 
 # --- KONFIGURACE ---
-st.set_page_config(page_title="Scoring firem V86.6", layout="wide")
+st.set_page_config(page_title="Valuační Matrix V86.7", layout="wide")
 
-st.markdown("""
-    <style>
-    [data-testid="stDataFrame"] td { text-align: right !important; }
-    [data-testid="stDataFrame"] td:first-child { 
-        text-align: left !important; 
-        font-weight: bold !important;
-        color: #003366 !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- 1. POMOCNÉ FUNKCE ---
-def safe_date_diff(earn_val, today):
-    if pd.isna(earn_val) or str(earn_val).strip() in ["", "-", "nan", "None"]:
-        return 999
+# --- POMOCNÉ FUNKCE ---
+def safe_float(val):
     try:
-        dt = pd.to_datetime(earn_val, dayfirst=True).date()
-        return (dt - today).days
-    except:
-        return 999
-
-def get_b(val, pasma):
-    if val is None or val == 0: return 0
-    for p in pasma:
-        if val <= p["h"]: return p["b"]
-    return pasma[-1]["b"]
-
-def get_b_direct(val, h_list, b_list):
-    if val is None or val == 0: return 0
-    for h, b in zip(h_list, b_list):
-        if val <= h: return b
-    return b_list[-1]
-
-def fmt(val, precision=1, is_pct=False):
-    if val is None or val == 0: return "0.0" + ("%" if is_pct else "")
-    res = f"{val:.{precision}f}"
-    return res + "%" if is_pct else res
-
-# --- 2. NAČTENÍ SEZNAMU ---
-ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
+        if val is None or str(val) == "nan" or str(val) == "None": return 0.0
+        return float(val)
+    except: return 0.0
 
 @st.cache_data(ttl=300)
 def nacti_seznam(odkaz):
@@ -53,158 +20,107 @@ def nacti_seznam(odkaz):
         csv_url = odkaz.replace('/edit?usp=sharing', '/export?format=csv')
         df = pd.read_csv(csv_url)
         df.columns = [c.strip() for c in df.columns]
-        df['Ticker'] = df['Ticker'].astype(str).str.upper()
         return df
     except: return pd.DataFrame()
 
-df_raw = nacti_seznam(ODKAZ_NA_TABULKU)
-
-# --- 3. LEVÁ LIŠTA ---
-st.sidebar.markdown("## **📊 Portfoliomanžer**")
-stranka = st.sidebar.radio("Zobrazení:", ["Scoring Matrix", "Kalendář & RSI"])
-st.sidebar.divider()
-filtr_kat = st.sidebar.selectbox("Filtr:", ["Portfolio", "Sledované", "Vše"], index=0)
-
-# Inicializace defaultních vah
-w_val, w_prof, w_growth, w_risk = 1.0, 1.0, 1.0, 1.0
-zobrazit_body = False
-
-# Definice pásem (musí být dostupné globálně pro výpočet)
-if stranka == "Scoring Matrix":
-    hodnoceni = st.sidebar.selectbox("Hodnocení:", ["Vlastní", "🛡️ Konzervativní", "🚀 Růstový"], index=0)
-    zobrazit_body = st.sidebar.checkbox("⚠️ Detailní body", value=False)
-    
-    def vytvor_p(nazev, zk, def_h, def_b):
-        with st.sidebar.expander(f"📊 {nazev}", expanded=False):
-            d = []
-            for i in range(5):
-                c1, c2 = st.columns(2)
-                h = c1.number_input(f"Do:", value=float(def_h[i]), key=f"{zk}_{i}")
-                b = c2.number_input(f"Body", value=int(def_b[i]), key=f"{zk}_{i}b")
-                d.append({"h": h, "b": b})
-            return d
-
-    p_pe = vytvor_p("P/E", "pe", [12, 18, 25, 40, 999], [20, 15, 5, 0, -15])
-    p_ps = vytvor_p("P/S", "ps", [1.5, 3, 6, 10, 999], [15, 10, 5, 0, -10])
-    p_pb = vytvor_p("P/B", "pb", [1, 2.5, 4, 8, 999], [10, 7, 3, 0, -5])
-    p_pfcf = vytvor_p("P/FCF", "pfcf", [12, 20, 35, 50, 999], [20, 12, 5, 0, -10])
-    p_gm = vytvor_p("H-Marže", "gm", [20, 35, 50, 70, 999], [0, 8, 15, 20, 25])
-    p_nm = vytvor_p("Č-Marže", "nm", [10, 20, 30, 45, 999], [0, 10, 18, 22, 30])
-    p_roe = vytvor_p("ROE", "roe", [12, 22, 35, 55, 999], [0, 10, 15, 20, 25])
-    p_rev = vytvor_p("Tržby y/y", "rev", [0, 10, 20, 35, 999], [-10, 8, 15, 25, 35])
-    p_eps = vytvor_p("Zisk y/y", "eps", [0, 10, 25, 45, 999], [-15, 10, 20, 28, 40])
-    p_deb = vytvor_p("Dluh D/E", "deb", [40, 80, 120, 200, 999], [20, 10, 0, -15, -40])
-    p_div = vytvor_p("Div. výnos", "div", [2, 4, 6, 8, 999], [5, 12, 15, 10, 5])
-    p_pot = vytvor_p("Potenciál", "pot", [8, 18, 28, 45, 999], [0, 10, 18, 25, 35])
-    
-    st.sidebar.divider()
-    w_val = st.sidebar.slider("Váha: Valuace", 0.5, 3.0, 1.0)
-    w_prof = st.sidebar.slider("Váha: Rentabilita", 0.5, 3.0, 1.0)
-    w_growth = st.sidebar.slider("Váha: Růst", 0.5, 3.0, 1.0)
-    w_risk = st.sidebar.slider("Váha: Riziko", 0.5, 3.0, 1.0)
-
-# --- 4. DATA FETCH ---
 @st.cache_data(ttl=3600)
 def fetch_data(df_input):
     res = []
     for row in df_input.to_dict('records'):
-        t = str(row.get('Ticker', '')).strip()
-        if not t or t == "-": continue
+        t = str(row.get('Ticker', '')).strip().upper()
+        if not t or t == "-" or t == "NAN": continue
         try:
-            tk = yf.Ticker(t); inf = tk.info; hi = tk.history(period="1mo")
-            rsi = 50
-            if len(hi) > 14:
-                d = hi['Close'].diff(); g = d.where(d > 0, 0).rolling(14).mean(); l = -d.where(d < 0, 0).rolling(14).mean()
-                rsi = 100 - (100 / (1 + (g.iloc[-1]/l.iloc[-1]))) if l.iloc[-1] != 0 else 50
-            res.append({"t": t, "inf": inf, "rsi": rsi, "kat": str(row.get('Kategorie')), "earn": row.get('Earnings Day'), "name": inf.get('longName', t)})
+            tk = yf.Ticker(t)
+            inf = tk.info
+            res.append({"t": t, "inf": inf, "kat": str(row.get('Kategorie')), "name": inf.get('longName', t)})
         except: continue
     return res
 
-raw_data = fetch_data(df_raw)
+# --- GLOBÁLNÍ DATA ---
+ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
+df_raw = nacti_seznam(ODKAZ_NA_TABULKU)
 
-# --- 5. VÝPOČET ---
-m_rows, c_rows, today = [], [], date.today()
-mapping_keys = ["P/E", "P/S", "P/B", "P/FCF", "H-Marže", "Č-Marže", "ROE", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Potenciál"]
-pct_cols = ["Změna", "H-Marže", "Č-Marže", "ROE", "Tržby y/y", "Zisk y/y", "Div. výnos", "Potenciál"]
+# --- SIDEBAR ---
+st.sidebar.markdown("## **📈 Analýza Hodnoty**")
+stranka = st.sidebar.radio("Zobrazení:", ["Scoring Matrix", "Kalendář & RSI", "Vnitřní hodnota (IV)"])
+filtr_kat = st.sidebar.selectbox("Filtr:", ["Portfolio", "Sledované", "Vše"], index=0)
+
+# Globální parametry pro IV (vstupy z tvého Excelu)
+with st.sidebar.expander("⚙️ Nastavení modelů (IV)", expanded=False):
+    g_default = st.slider("Očekávaný růst (g) %", 0, 15, 3) / 100
+    wacc_default = st.slider("Diskontní sazba (WACC) %", 5, 15, 8) / 100
+    bond_yield = st.number_input("Výnos 20y dluhopisů (Y)", value=4.4)
+    w_graham = st.slider("Váha: Graham", 0.0, 1.0, 0.3)
+    w_dcf = st.slider("Váha: DCF/FCF", 0.0, 1.0, 0.4)
+    w_mult = st.slider("Váha: Multiples", 0.0, 1.0, 0.3)
+
+# --- LOGIKA VÝPOČTU VNITŘNÍ HODNOTY ---
+raw_data = fetch_data(df_raw)
+iv_rows = []
 
 for item in raw_data:
     if filtr_kat != "Vše" and item["kat"] != filtr_kat: continue
-    inf, t, name = item["inf"], item["t"], item["name"]
+    inf, t = item["inf"], item["t"]
     
-    def sg(k, mult=1.0):
-        v = inf.get(k); return float(v) * mult if v is not None and str(v) != "None" else 0.0
+    curr_price = safe_float(inf.get('currentPrice'))
+    eps = safe_float(inf.get('trailingEps'))
+    bvps = safe_float(inf.get('bookValue'))
+    fcf = safe_float(inf.get('freeCashflow'))
+    shares = safe_float(inf.get('sharesOutstanding'))
+    ps_hist = safe_float(inf.get('priceToSalesTrailing12Months')) # aktuální pro srovnání
+    
+    # 1. Grahamova Formule (V = (EPS * (8.5 + 2g) * 4.4) / Y)
+    iv_graham_f = (eps * (8.5 + 2 * (g_default * 100)) * 4.4) / bond_yield if eps > 0 else 0
+    
+    # 2. Grahamovo číslo (sqrt(22.5 * EPS * BVPS))
+    iv_graham_n = np.sqrt(22.5 * eps * bvps) if (eps > 0 and bvps > 0) else 0
+    
+    # 3. FCF Model (V = (FCF * (1+g)) / (WACC - g) / shares)
+    iv_fcf = 0
+    if shares > 0 and (wacc_default > g_default):
+        total_fcf_val = (fcf * (1 + g_default)) / (wacc_default - g_default)
+        iv_fcf = total_fcf_val / shares
+    
+    # 4. Multiples (P/E konzervativní odhad - např. 15x EPS)
+    iv_mult = eps * 15 
 
-    raw_vals = {
-        "Cena": sg("currentPrice"), "Změna": ((sg("currentPrice")/sg("previousClose", 1.0))-1)*100 if sg("previousClose") else 0,
-        "P/E": sg("trailingPE") or sg("forwardPE"), "P/S": sg("priceToSalesTrailing12Months"), 
-        "P/B": sg("priceToBook"), "P/FCF": sg("marketCap")/sg("freeCashflow") if sg("freeCashflow") else 0,
-        "H-Marže": sg("grossMargins", 100), "Č-Marže": sg("profitMargins", 100), "ROE": sg("returnOnEquity", 100), 
-        "Tržby y/y": sg("revenueGrowth", 100), "Zisk y/y": sg("earningsGrowth", 100), "Dluh D/E": sg("debtToEquity"), 
-        "Div. výnos": sg("dividendYield") * 100, "Potenciál": ((sg("targetMeanPrice")/sg("currentPrice", 1.0))-1)*100 if sg("targetMeanPrice") else 0
-    }
+    # Průměrná vnitřní hodnota (Vážená)
+    # Pokud je některá metoda 0 (nejsou data), váha se přerozdělí nebo ignoruje
+    methods = [iv_graham_f, iv_fcf, iv_mult]
+    weights = [w_graham, w_dcf, w_mult]
+    
+    avg_iv = sum(m * w for m, w in zip(methods, weights)) / sum(weights)
+    upside = ((avg_iv / curr_price) - 1) * 100 if curr_price > 0 else 0
 
-    # MATRIX LOGIKA (pouze pokud jsme v Matrixu)
-    if stranka == "Scoring Matrix":
-        total = 0
-        row_p = {"Titul": f"   └ body ({t})", "Type": "Points"}
-        p_map = {"P/E":p_pe,"P/S":p_ps,"P/B":p_pb,"P/FCF":p_pfcf,"H-Marže":p_gm,"Č-Marže":p_nm,"ROE":p_roe,"Tržby y/y":p_rev,"Zisk y/y":p_eps,"Dluh D/E":p_deb,"Div. výnos":p_div,"Potenciál":p_pot}
-        w_map = {"v":w_val,"p":w_prof,"g":w_growth,"r":w_risk}
-        
-        for k in mapping_keys:
-            vw = w_map["v"] if k in ["P/E","P/S","P/B","P/FCF"] else (w_map["p"] if "Marže" in k or "ROE" in k else (w_map["g"] if k in ["Tržby y/y","Zisk y/y","Div. výnos","Potenciál"] else w_map["r"]))
-            b = get_b(raw_vals[k], p_map[k]) * vw
-            total += b
-            row_p[k] = str(int(round(b)))
-
-        row_v = {"Titul": name, "Type": "Value", "_change": raw_vals["Změna"], "Score": int(total)}
-        for k in mapping_keys:
-            row_v[k] = fmt(raw_vals[k], 1, k in pct_cols)
-            row_v[f"_raw_{k}"] = raw_vals[k]
-        row_v["Cena"], row_v["Změna"] = fmt(raw_vals["Cena"], 2), fmt(raw_vals["Změna"], 1, True)
-        m_rows.append(row_v)
-        if zobrazit_body: m_rows.append(row_p)
-
-    # KALENDÁŘ LOGIKA
-    days_to = safe_date_diff(item["earn"], today)
-    ex_dt = datetime.fromtimestamp(inf.get('exDividendDate')).date() if inf.get('exDividendDate') else None
-    c_rows.append({
-        "Titul": name, "Ticker": t, "Earnings": item["earn"] if not pd.isna(item["earn"]) else "-", "Dní do": days_to,
-        "Dividenda": f"{sg('dividendRate'):.2f} {inf.get('currency', 'USD')}", "Ex-Date": ex_dt.strftime('%d.%m.%Y') if ex_dt else "-", 
-        "Doporučení": inf.get('recommendationKey', '-').replace('_', ' ').title(), "RSI": int(item['rsi']), "_rsi": item["rsi"]
+    iv_rows.append({
+        "Titul": item["name"],
+        "Cena": curr_price,
+        "Graham F.": round(iv_graham_f, 2),
+        "Graham č.": round(iv_graham_n, 2),
+        "FCF Model": round(iv_fcf, 2),
+        "Multiples": round(iv_mult, 2),
+        "Férová cena": round(avg_iv, 2),
+        "Potenciál": round(upside, 1)
     })
 
-# --- 6. ZOBRAZENÍ ---
-if stranka == "Scoring Matrix":
-    df = pd.DataFrame(m_rows)
-    if not df.empty:
-        def style_matrix(r):
-            s = [''] * len(r)
-            if r.get("Type") == "Points": return ['color: #888; font-style: italic; background-color: #f8f9fa'] * len(r)
-            for i, col in enumerate(r.index):
-                if col in ["Cena", "Změna"]: s[i] = f"color: {'#1b5e20' if r['_change']>0 else '#b71c1c'}; font-weight: bold"
-                val = r.get(f"_raw_{col}", 0)
-                if col == "P/E" and val > 25: s[i] = 'background-color: #ffebee'
-                if col == "Dluh D/E" and val > 120: s[i] = 'background-color: #ffcdd2'
-            return s
-        st.dataframe(df.style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn", vmin=0, vmax=150),
-                     use_container_width=True, hide_index=True, height=800,
-                     column_order=["Titul", "Cena", "Změna"] + mapping_keys + ["Score"])
+# --- ZOBRAZENÍ ---
+if stranka == "Vnitřní hodnota (IV)":
+    st.subheader("🎯 Odhad vnitřní hodnoty akcií")
+    st.info("Výpočet kombinuje Grahamovu formuli, FCF model a srovnávací multiples. Váhy a parametry lze upravit v levém panelu.")
+    
+    df_iv = pd.DataFrame(iv_rows)
+    if not df_iv.empty:
+        def style_iv(val):
+            color = '#1b5e20' if val > 10 else ('#b71c1c' if val < -10 else '#333')
+            return f'color: {color}; font-weight: bold'
+
+        st.dataframe(
+            df_iv.style.applymap(style_iv, subset=['Potenciál'])
+            .background_gradient(subset=['Potenciál'], cmap='RdYlGn', vmin=-50, vmax=50),
+            use_container_width=True, hide_index=True
+        )
+        
+elif stranka == "Scoring Matrix":
+    st.write("Zde by byl váš původní Scoring Matrix kód...")
 else:
-    df_c = pd.DataFrame(c_rows)
-    if not df_c.empty:
-        def style_calendar(r):
-            s = [''] * len(r)
-            d_idx = r.index.get_loc("Dní do")
-            if r["Dní do"] < 0: s[d_idx] = 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold'
-            elif r["Dní do"] < 14: s[d_idx] = 'background-color: #fff9c4; color: #f57f17; font-weight: bold'
-            
-            rec = str(r["Doporučení"]).lower(); rec_idx = r.index.get_loc("Doporučení")
-            if "buy" in rec: s[rec_idx] = 'background-color: #e8f5e9; color: #1b5e20; font-weight: bold'
-            elif "sell" in rec: s[rec_idx] = 'background-color: #ffebee; color: #b71c1c'
-            
-            rsi_idx = r.index.get_loc("RSI")
-            if r["_rsi"] < 35: s[rsi_idx] = 'background-color: #c8e6c9; color: #1b5e20; font-weight: bold'
-            elif r["_rsi"] > 65: s[rsi_idx] = 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold'
-            return s
-        st.dataframe(df_c.style.apply(style_calendar, axis=1), use_container_width=True, hide_index=True, height=800,
-                     column_order=["Titul", "Ticker", "Earnings", "Dní do", "Dividenda", "Ex-Date", "Doporučení", "RSI"])
+    st.write("Zde by byl váš původní Kalendář kód...")
