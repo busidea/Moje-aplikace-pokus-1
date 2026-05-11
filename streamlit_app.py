@@ -74,17 +74,17 @@ filtered_data = [d for d in all_data if filtr_kat == "Vše" or d["kat"] == filtr
 
 # --- 4. STRÁNKA: VNITŘNÍ HODNOTA (IV) ---
 if stranka == "Vnitřní hodnota (IV)":
-    st.subheader("🎯 Odhad vnitřní hodnoty akcií (Intrinsic Value)")
+    st.subheader("🎯 Komplexní odhad vnitřní hodnoty")
     
     with st.sidebar.expander("⚙️ Nastavení modelů (IV)", expanded=True):
         g_pct = st.slider("Očekávaný růst (g) %", 0.0, 15.0, 3.0) / 100
         re_pct = st.slider("Požadovaná výnosnost (Re) %", 5.0, 15.0, 8.5) / 100
         y_bond = st.number_input("Výnos 20y dluhopisů (Y)", value=4.4)
-        st.caption("Váhy metod pro průměr:")
-        w_graham = st.slider("Graham", 0.0, 1.0, 0.25)
-        w_fcf = st.slider("FCF Model", 0.0, 1.0, 0.25)
-        w_rim = st.slider("RIM Model", 0.0, 1.0, 0.25)
-        w_ddm = st.slider("DDM Model", 0.0, 1.0, 0.25)
+        target_ps = st.slider("Cílový P/S násobek (pro firmy v růstu)", 1.0, 10.0, 3.5)
+        st.caption("Váhy metod:")
+        w_profit = st.slider("Váha: Ziskové modely (Graham, RIM)", 0.0, 1.0, 0.4)
+        w_cash = st.slider("Váha: Cashflow modely (FCF, DDM)", 0.0, 1.0, 0.3)
+        w_sales = st.slider("Váha: Majetkové a tržební (NAV, P/S)", 0.0, 1.0, 0.3)
 
     iv_results = []
     for item in filtered_data:
@@ -95,20 +95,33 @@ if stranka == "Vnitřní hodnota (IV)":
         fcf = safe_float(inf.get('freeCashflow'))
         shares = safe_float(inf.get('sharesOutstanding'))
         div = safe_float(inf.get('dividendRate'))
+        rev = safe_float(inf.get('totalRevenue'))
         
-        # Graham (výpočet jen při kladném EPS)
+        # 1. Ziskové metody (Graham, RIM)
         v_graham = (eps * (8.5 + 2 * (g_pct*100)) * 4.4) / y_bond if eps > 0 else 0
-        # FCF
-        v_fcf = ((fcf * (1 + g_pct)) / (re_pct - g_pct)) / shares if (shares > 0 and re_pct > g_pct and fcf > 0) else 0
-        # RIM (tolerantnější výpočet)
         v_rim = bvps + ((eps - (re_pct * bvps)) / (re_pct - g_pct)) if (bvps > 0 and re_pct > g_pct) else 0
-        # DDM
+        
+        # 2. Cashflow metody (FCF, DDM)
+        v_fcf = ((fcf * (1 + g_pct)) / (re_pct - g_pct)) / shares if (shares > 0 and re_pct > g_pct and fcf > 0) else 0
         v_ddm = (div * (1 + g_pct)) / (re_pct - g_pct) if (div > 0 and re_pct > g_pct) else 0
+        
+        # 3. Tržební a Majetkové (P/S, NAV) - FUNGUJE I PRO FIRMY VE ZTRÁTĚ
+        v_ps = (rev / shares) * target_ps if (shares > 0 and rev > 0) else 0
+        v_nav = bvps if bvps > 0 else 0
 
-        # Dynamický průměr
-        methods = [(v_graham, w_graham), (v_fcf, w_fcf), (v_rim, w_rim), (v_ddm, w_ddm)]
-        active_vals = [m[0] * m[1] for m in methods if m[0] > 0]
-        active_weights = [m[1] for m in methods if m[0] > 0]
+        # Dynamický vážený průměr
+        # Rozdělíme metody do skupin podle vašich vah
+        methods = [
+            (v_graham, w_profit/2 if v_graham > 0 else 0),
+            (v_rim, w_profit/2 if v_rim > 0 else 0),
+            (v_fcf, w_cash/2 if v_fcf > 0 else 0),
+            (v_ddm, w_cash/2 if v_ddm > 0 else 0),
+            (v_ps, w_sales/2 if v_ps > 0 else 0),
+            (v_nav, w_sales/2 if v_nav > 0 else 0)
+        ]
+        
+        active_vals = [m[0] * m[1] for m in methods if m[1] > 0]
+        active_weights = [m[1] for m in methods if m[1] > 0]
         
         fair_price = sum(active_vals) / sum(active_weights) if sum(active_weights) > 0 else 0
         upside = ((fair_price / price) - 1) * 100 if price > 0 else 0
@@ -116,26 +129,25 @@ if stranka == "Vnitřní hodnota (IV)":
         iv_results.append({
             "Titul": item["name"],
             "Cena": round(price, 2),
-            "Graham": int(v_graham) if v_graham > 0 else 0,
-            "FCF": int(v_fcf) if v_fcf > 0 else 0,
-            "RIM": int(v_rim) if v_rim > 0 else 0,
-            "DDM": int(v_ddm) if v_ddm > 0 else 0,
+            "Graham/RIM": int(max(v_graham, v_rim)),
+            "FCF/DDM": int(max(v_fcf, v_ddm)),
+            "Tržby/NAV": int(max(v_ps, v_nav)), # Toto ukáže hodnotu i pro EHANG
             "Férová cena": int(fair_price),
-            "Potenciál": round(upside, 1), # Číslo pro gradient
-            "Potenciál %": f"{round(upside, 1)}%" # Text pro zobrazení
+            "Potenciál": round(upside, 1),
+            "Potenciál %": f"{round(upside, 1)}%"
         })
 
     df_iv = pd.DataFrame(iv_results)
     if not df_iv.empty:
-        # Přeformátování nul na pomlčky
-        for col in ["Graham", "FCF", "RIM", "DDM"]:
-            df_iv[col] = df_iv[col].apply(lambda x: "-" if (x == 0 or x == "0") else x)
+        # Formátování pro přehlednost
+        for col in ["Graham/RIM", "FCF/DDM", "Tržby/NAV"]:
+            df_iv[col] = df_iv[col].apply(lambda x: "-" if x <= 0 else x)
 
         st.dataframe(
             df_iv.style.map(lambda x: f'color: {"#1b5e20" if x > 10 else ("#b71c1c" if x < -10 else "#333")}; font-weight: bold', subset=['Potenciál'])
             .background_gradient(subset=['Potenciál'], cmap='RdYlGn', vmin=-30, vmax=30),
             use_container_width=True, hide_index=True, height=600,
-            column_order=["Titul", "Cena", "Graham", "FCF", "RIM", "DDM", "Férová cena", "Potenciál %"]
+            column_order=["Titul", "Cena", "Graham/RIM", "FCF/DDM", "Tržby/NAV", "Férová cena", "Potenciál %"]
         )
 # --- 5. OSTATNÍ STRÁNKY (SCORING & KALENDÁŘ) ---
 elif stranka == "Scoring Matrix":
