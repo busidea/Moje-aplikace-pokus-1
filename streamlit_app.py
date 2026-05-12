@@ -4,7 +4,7 @@ import yfinance as yf
 from datetime import datetime, date
 
 # --- 1. KONFIGURACE A STYL ---
-st.set_page_config(page_title="Investment Terminal V100.3", layout="wide")
+st.set_page_config(page_title="Investment Terminal V100.4", layout="wide")
 
 st.markdown("""
     <style>
@@ -76,7 +76,14 @@ def fetch_data_full(df_input):
                 d = hi['Close'].diff(); g = d.where(d > 0, 0).rolling(14).mean(); l = -d.where(d < 0, 0).rolling(14).mean()
                 rsi = 100 - (100 / (1 + (g.iloc[-1]/l.iloc[-1]))) if l.iloc[-1] != 0 else 50
                 
-            res.append({"t": t, "inf": inf, "rsi": rsi, "kat": str(row.get('Kategorie', 'Vše')), "earn": row.get('Earnings Day'), "name": inf.get('longName', t), "loni": loni})
+            res.append({
+                "t": t, "inf": inf, "rsi": rsi, 
+                "kat": str(row.get('Kategorie', 'Vše')), 
+                "earn": row.get('Earnings Day'), 
+                "name": inf.get('longName', t), 
+                "loni": loni,
+                "moat": row.get('Moat', '-')
+            })
         except: continue
     return res
 
@@ -84,7 +91,7 @@ def fetch_data_full(df_input):
 ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
 df_raw_list = nacti_seznam(ODKAZ_NA_TABULKU)
 
-st.sidebar.markdown("## **📊 Portfoliomanžer V100.3**")
+st.sidebar.markdown("## **📊 Portfoliomanžer V100.4**")
 stranka = st.sidebar.radio("Zobrazení:", ["Scoring Matrix", "Vnitřní hodnota (IV)", "Kalendář & RSI"])
 filtr_kat = st.sidebar.selectbox("Filtr:", ["Portfolio", "Sledované", "Vše"], index=0)
 
@@ -113,8 +120,6 @@ if stranka == "Scoring Matrix":
     w_fund = st.sidebar.slider("Váha: Fundament", 0.5, 3.0, 1.0)
 
     m_rows = []
-    mapping_keys = ["P/E", "P/S", "ROE"]
-    
     for item in filtered_data:
         inf, loni = item["inf"], item["loni"]
         price = safe_float(inf.get('currentPrice'))
@@ -125,58 +130,78 @@ if stranka == "Scoring Matrix":
         roe = safe_float(inf.get("returnOnEquity", 0)) * 100
         
         total_dnes = (get_b(act_pe, p_pe) * w_val) + (get_b(ps, p_ps) * w_val) + (get_b(roe, p_roe) * w_fund)
+        
+        # Trend výpočet
         pe_loni = price / loni.get('eps', 1) if loni.get('eps', 0) != 0 else 0
         total_loni = (get_b(pe_loni, p_pe) * w_val) + (get_b(ps, p_ps) * w_val) + (get_b(loni.get('roe', 0), p_roe) * w_fund)
-        
         trend_val = total_dnes - total_loni
         trend_str = f"{'▲' if trend_val > 0 else '▼'} {abs(int(trend_val))}" if abs(trend_val) > 0 else "• 0"
 
-        row_v = {
-            "Titul": item["name"], "Type": "Value", "Cena": fmt(price, 2), "Změna": fmt(((price/safe_float(inf.get("previousClose", 1)))-1)*100, 1, True),
+        m_rows.append({
+            "Titul": item["name"], "Cena": fmt(price, 2), 
             "P/E": fmt(act_pe, 1), "P/S": fmt(ps, 1), "ROE %": fmt(roe, 1, True), 
-            "Score": int(total_dnes), "Fund. Trend": trend_str, "_trend": trend_val, "_change": ((price/safe_float(inf.get("previousClose", 1)))-1)*100
-        }
-        m_rows.append(row_v)
+            "Score": int(total_dnes), "Fund. Trend": trend_str, 
+            "_trend": trend_val, "Type": "Value"
+        })
         if zobrazit_body:
-            m_rows.append({"Titul": f"   └ body ({item['t']})", "Type": "Points", "Score": "", "Fund. Trend": ""})
+            m_rows.append({"Titul": f"   └ body ({item['t']})", "Type": "Points", "Score": None, "Fund. Trend": ""})
 
     df = pd.DataFrame(m_rows)
     if not df.empty:
-        # Přenastavení sloupců - Score a Trend na konec
-        order = [c for c in df.columns if c not in ["Score", "Fund. Trend", "_trend", "_change", "Type"]] + ["Score", "Fund. Trend"]
-        
         def style_matrix(r):
-            s = [''] * len(r)
+            res = [''] * len(r)
             if r.get("Type") == "Points": return ['color: #888; font-style: italic; background-color: #f8f9fa'] * len(r)
-            t_idx = r.index.get_loc("Fund. Trend")
-            s[t_idx] = f"color: {'#2ecc71' if r['_trend'] > 0 else ('#e74c3c' if r['_trend'] < 0 else '#888')}; font-weight: bold"
-            return s
+            # Vyhledáme indexy pro barvení
+            if "_trend" in r:
+                t_idx = r.index.get_loc("Fund. Trend")
+                res[t_idx] = f"color: {'#2ecc71' if r['_trend'] > 0 else ('#e74c3c' if r['_trend'] < 0 else '#888')}; font-weight: bold"
+            return res
 
-        st.dataframe(df[order].style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn", vmin=0, vmax=100),
-                     use_container_width=True, hide_index=True)
+        st.dataframe(df.style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn", vmin=0, vmax=100),
+                     use_container_width=True, hide_index=True,
+                     column_config={"_trend": None, "Type": None}) # Skryje pomocné sloupce
 
-# --- 6. STRÁNKA: IV TERMINÁL (OBNOVENO) ---
+# --- 6. STRÁNKA: IV TERMINÁL (PLNÁ VERZE) ---
 elif stranka == "Vnitřní hodnota (IV)":
-    st.subheader("🎯 Odhad vnitřní hodnoty (IV)")
+    st.subheader("🎯 Komplexní odhad vnitřní hodnoty")
+    
+    c1, c2, c3 = st.columns(3)
+    wi1 = c1.slider("Váha: Analytici", 0.0, 1.0, 0.4)
+    wi2 = c2.slider("Váha: Graham", 0.0, 1.0, 0.3)
+    wi3 = c3.slider("Váha: Multiplikátory", 0.0, 1.0, 0.3)
+
     iv_rows = []
     for item in filtered_data:
         inf = item["inf"]
         price = safe_float(inf.get('currentPrice'))
-        # Pilíř 1: Analytický cíl
-        target = safe_float(inf.get('targetMeanPrice', price))
-        # Pilíř 2: Graham (zjednodušený)
         eps = safe_float(inf.get('trailingEps'))
-        graham = (eps * (8.5 + 2 * 5)) if eps > 0 else 0 # 5% růst default
-        # Výsledek (průměr pilířů)
-        iv_final = (target + graham) / 2 if graham > 0 else target
+        rev = safe_float(inf.get('totalRevenue'))
+        
+        # 1. Pilíř: Target Price
+        p1 = safe_float(inf.get('targetMeanPrice', price))
+        
+        # 2. Pilíř: Graham (8.5 + 2g)
+        p2 = (eps * 15.5) if eps > 0 else 0 
+        
+        # 3. Pilíř: Historické P/S (férové ocenění tržeb)
+        p3 = (rev / safe_float(inf.get('sharesOutstanding'))) * 2.5 if safe_float(inf.get('sharesOutstanding')) > 0 else 0
+        
+        # Finální IV
+        iv_final = (p1 * wi1 + p2 * wi2 + p3 * wi3) / (wi1 + wi2 + wi3) if (wi1+wi2+wi3) > 0 else price
         upside = ((iv_final / price) - 1) * 100 if price > 0 else 0
         
         iv_rows.append({
-            "Titul": item["name"], "Tržní Cena": fmt(price, 2), "Graham IV": fmt(graham, 2), 
-            "Target Price": fmt(target, 2), "IV Odhad": fmt(iv_final, 2), "Potenciál": fmt(upside, 1, True), "_up": upside
+            "Titul": item["name"], "Tržní Cena": price, 
+            "Analytici": p1, "Graham": p2, "Průmysl": p3,
+            "Vnitřní hodnota": iv_final, "Potenciál %": upside
         })
+    
     df_iv = pd.DataFrame(iv_rows)
-    st.dataframe(df_iv.style.background_gradient(subset=["_up"], cmap="RdYlGn", vmin=-20, vmax=50), use_container_width=True, hide_index=True)
+    st.dataframe(df_iv.style.format({
+        "Tržní Cena": "{:.2f}", "Analytici": "{:.2f}", "Graham": "{:.2f}", 
+        "Průmysl": "{:.2f}", "Vnitřní hodnota": "{:.2f}", "Potenciál %": "{:+.1f}%"
+    }).background_gradient(subset=["Potenciál %"], cmap="RdYlGn", vmin=-20, vmax=50), 
+    use_container_width=True, hide_index=True)
 
 # --- 7. STRÁNKA: KALENDÁŘ & RSI ---
 else:
@@ -186,14 +211,12 @@ else:
         days_to = safe_date_diff(item["earn"], today)
         c_rows.append({
             "Titul": item["name"], "Ticker": item["t"], "Earnings": item["earn"] if not pd.isna(item["earn"]) else "-", 
-            "Dní do": days_to, "RSI": int(item['rsi']), "_rsi": item["rsi"]
+            "Dní do": days_to, "RSI": int(item['rsi']), "_rsi": item["rsi"], "Moat": item["moat"]
         })
     df_c = pd.DataFrame(c_rows)
     if not df_c.empty:
-        def style_cal(r):
-            s = [''] * len(r)
-            rsi_idx = r.index.get_loc("RSI")
-            if r["_rsi"] < 35: s[rsi_idx] = 'background-color: #c8e6c9; color: #1b5e20; font-weight: bold'
-            elif r["_rsi"] > 65: s[rsi_idx] = 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold'
-            return s
-        st.dataframe(df_c.style.apply(style_cal, axis=1), use_container_width=True, hide_index=True)
+        st.dataframe(df_c.style.apply(lambda r: [
+            'background-color: #c8e6c9' if c == "RSI" and r["_rsi"] < 35 else 
+            ('background-color: #ffcdd2' if c == "RSI" and r["_rsi"] > 65 else '') 
+            for c in r.index], axis=1), 
+        use_container_width=True, hide_index=True, column_config={"_rsi": None})
