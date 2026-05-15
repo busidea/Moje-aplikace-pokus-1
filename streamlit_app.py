@@ -3,17 +3,23 @@ import pandas as pd
 import yfinance as yf
 from datetime import datetime, date
 
-# --- 1. KONFIGURACE A STYL ---
-st.set_page_config(page_title="Investiční Terminál v1.0", layout="wide")
+# --- 1. KONFIGURACE A STYL (VYLADĚNÍ PROSTORU) ---
+st.set_page_config(page_title="Investiční Terminál", layout="wide")
 
 st.markdown("""
     <style>
+    /* Odstranění horního paddingu pro maximum místa */
+    .block-container { padding-top: 1rem; padding-bottom: 0rem; }
     [data-testid="stDataFrame"] td { text-align: right !important; }
+    /* Tučný první sloupec */
     [data-testid="stDataFrame"] td:first-child { 
         text-align: left !important; 
         font-weight: bold !important;
         color: #003366 !important;
     }
+    /* Skrytí menu a patičky Streamlitu pro profi vzhled */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
     </style>
     """, unsafe_allow_html=True)
 
@@ -81,21 +87,31 @@ df_raw_list = nacti_seznam(ODKAZ_NA_TABULKU)
 raw_data = fetch_all_data(df_raw_list)
 
 # --- 4. SIDEBAR (NAVIGACE A FILTRY) ---
-st.sidebar.markdown("## **📊 Portfoliomanžer**")
-stranka = st.sidebar.radio("Zobrazení:", ["Scoring Matrix", "Vnitřní hodnota (IV)", "Kalendář & RSI"])
+st.sidebar.markdown("### **📊 Menu**")
+stranka = st.sidebar.radio("Zobrazení:", ["Scoring Matrix", "Vnitřní hodnota (IV)", "Kalendář & RSI"], label_visibility="collapsed")
 st.sidebar.divider()
-filtr_kat = st.sidebar.selectbox("Filtr:", ["Portfolio", "Sledované", "Vše"], index=0)
-
-# Filtrace dat pro zobrazení
+filtr_kat = st.sidebar.selectbox("Filtr kategorií:", ["Portfolio", "Sledované", "Vše"], index=0)
 filtered_data = [d for d in raw_data if filtr_kat == "Vše" or d["kat"] == filtr_kat]
 
 # --- 5. LOGIKA STRÁNEK ---
 
-# --- A. SCORING MATRIX ---
 if stranka == "Scoring Matrix":
-    st.subheader("📊 Kvalitativní Scoring Matrix")
+    # --- TOVÁRNÍ NASTAVENÍ STRATEGIÍ ---
+    strategie = st.sidebar.selectbox("Strategie:", ["Vlastní", "🛡️ Konzervativní", "🚀 Růstová"])
     zobrazit_body = st.sidebar.checkbox("⚠️ Detailní body", value=False)
     
+    # Definice defaultů podle strategie
+    defaults = {
+        "P/E": {"h": [12, 18, 25, 40, 999], "b": [20, 15, 5, 0, -15]},
+        "P/S": {"h": [1.5, 3, 6, 10, 999], "b": [15, 10, 5, 0, -10]}
+    }
+    if strategie == "🛡️ Konzervativní":
+        defaults["P/E"] = {"h": [10, 15, 20, 30, 999], "b": [25, 15, 0, -10, -30]}
+        defaults["P/S"] = {"h": [1.0, 2, 4, 7, 999], "b": [20, 10, 0, -10, -20]}
+    elif strategie == "🚀 Růstová":
+        defaults["P/E"] = {"h": [20, 35, 50, 80, 999], "b": [15, 25, 15, 5, -5]}
+        defaults["P/S"] = {"h": [3, 6, 12, 20, 999], "b": [10, 15, 20, 5, -10]}
+
     def vytvor_p(nazev, zk, def_h, def_b):
         with st.sidebar.expander(f"📊 {nazev}", expanded=False):
             d = []
@@ -106,8 +122,8 @@ if stranka == "Scoring Matrix":
                 d.append({"h": h, "b": b})
             return d
 
-    p_pe = vytvor_p("P/E", "pe", [12, 18, 25, 40, 999], [20, 15, 5, 0, -15])
-    p_ps = vytvor_p("P/S", "ps", [1.5, 3, 6, 10, 999], [15, 10, 5, 0, -10])
+    p_pe = vytvor_p("P/E", "pe", defaults["P/E"]["h"], defaults["P/E"]["b"])
+    p_ps = vytvor_p("P/S", "ps", defaults["P/S"]["h"], defaults["P/S"]["b"])
     p_pb = vytvor_p("P/B", "pb", [1, 2.5, 4, 8, 999], [10, 7, 3, 0, -5])
     p_pfcf = vytvor_p("P/FCF", "pfcf", [12, 20, 35, 50, 999], [20, 12, 5, 0, -10])
     p_gm = vytvor_p("H-Marže", "gm", [20, 35, 50, 70, 999], [0, 8, 15, 20, 25])
@@ -126,13 +142,17 @@ if stranka == "Scoring Matrix":
     w_risk = st.sidebar.slider("Váha: Riziko", 0.5, 3.0, 1.0)
 
     mapping_keys = ["P/E", "P/S", "P/B", "P/FCF", "H-Marže", "Č-Marže", "ROE", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Potenciál"]
-    pct_cols = ["Změna", "H-Marže", "Č-Marže", "ROE", "Tržby y/y", "Zisk y/y", "Div. výnos", "Potenciál"]
+    pct_cols = ["Změna", "H-Marže", "Č-Marže", "ROE", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Potenciál"]
     m_rows = []
 
     for item in filtered_data:
         inf = item["inf"]; t = item["t"]; name = item["name"]
         def sg(k, mult=1.0):
             v = inf.get(k); return float(v) * mult if v is not None and str(v) != "None" else 0.0
+        
+        # Ošetření dividendy (yfinance někdy vrací 0.035 místo 3.5)
+        d_yield = sg("dividendYield")
+        if d_yield < 0.2 and d_yield > 0: d_yield *= 100 
 
         raw_vals = {
             "Cena": sg("currentPrice"), "Změna": ((sg("currentPrice")/sg("previousClose", 1.0))-1)*100 if sg("previousClose") else 0,
@@ -140,7 +160,7 @@ if stranka == "Scoring Matrix":
             "P/B": sg("priceToBook"), "P/FCF": sg("marketCap")/sg("freeCashflow") if sg("freeCashflow") else 0,
             "H-Marže": sg("grossMargins", 100), "Č-Marže": sg("profitMargins", 100), "ROE": sg("returnOnEquity", 100), 
             "Tržby y/y": sg("revenueGrowth", 100), "Zisk y/y": sg("earningsGrowth", 100), "Dluh D/E": sg("debtToEquity"), 
-            "Div. výnos": sg("dividendYield") * 100, "Potenciál": ((sg("targetMeanPrice")/sg("currentPrice", 1.0))-1)*100 if sg("targetMeanPrice") else 0
+            "Div. výnos": d_yield, "Potenciál": ((sg("targetMeanPrice")/sg("currentPrice", 1.0))-1)*100 if sg("targetMeanPrice") else 0
         }
 
         total = 0
@@ -174,19 +194,15 @@ if stranka == "Scoring Matrix":
                 if col == "Dluh D/E" and val > 120: s[i] = 'background-color: #ffcdd2'
             return s
         st.dataframe(df.style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn", vmin=0, vmax=150),
-                    use_container_width=True, hide_index=True, height=800,
+                    use_container_width=True, hide_index=True, height=1000,
                     column_order=["Titul", "Cena", "Změna"] + mapping_keys + ["Score"])
 
-# --- B. VNITŘNÍ HODNOTA (IV) ---
 elif stranka == "Vnitřní hodnota (IV)":
-    st.subheader("🎯 Komplexní ocenění společností")
     show_details = st.sidebar.toggle("🔓 Zobrazit detailní metody", value=False)
-    
-    with st.sidebar.expander("⚖️ Nastavení vah pilířů", expanded=False):
+    with st.sidebar.expander("⚖️ Váhy pilířů", expanded=False):
         w1 = st.slider("Váha P1 (Ziskové)", 0, 100, 33)
         w2 = st.slider("Váha P2 (Cashflow)", 0, 100, 33)
         w3 = st.slider("Váha P3 (Majetek)", 0, 100, 34)
-
     with st.sidebar.expander("⚙️ Globální parametry", expanded=True):
         g_pct = st.slider("Růst (g) %", 0.0, 10.0, 3.0) / 100
         re_pct = st.slider("Výnosnost (Re) %", 5.0, 15.0, 9.0) / 100
@@ -196,14 +212,10 @@ elif stranka == "Vnitřní hodnota (IV)":
 
     iv_results = []
     for item in filtered_data:
-        inf = item["inf"]
-        price = safe_float(inf.get('currentPrice'))
-        eps = safe_float(inf.get('trailingEps'))
-        bvps = safe_float(inf.get('bookValue'))
-        fcf = safe_float(inf.get('freeCashflow'))
-        rev = safe_float(inf.get('totalRevenue'))
-        shares = safe_float(inf.get('sharesOutstanding'))
-        div = safe_float(inf.get('dividendRate'))
+        inf = item["inf"]; price = safe_float(inf.get('currentPrice'))
+        eps = safe_float(inf.get('trailingEps')); bvps = safe_float(inf.get('bookValue'))
+        fcf = safe_float(inf.get('freeCashflow')); rev = safe_float(inf.get('totalRevenue'))
+        shares = safe_float(inf.get('sharesOutstanding')); div = safe_float(inf.get('dividendRate'))
 
         v_graham = (eps * (8.5 + 2 * (g_pct*100)) * 4.4) / y_bond if eps > 0 else 0
         v_pe = eps * target_pe if eps > 0 else 0
@@ -216,8 +228,7 @@ elif stranka == "Vnitřní hodnota (IV)":
         v_nav = bvps if bvps > 0 else 0
         val_p3 = max(v_ps, v_nav)
 
-        ws = [w1, w2, w3]
-        vals = [val_p1, val_p2, val_p3]
+        ws = [w1, w2, w3]; vals = [val_p1, val_p2, val_p3]
         weighted_sum = sum(v * w for v, w in zip(vals, ws) if v > 0)
         active_weights = sum(w for v, w in zip(vals, ws) if v > 0)
         fair_price = weighted_sum / active_weights if active_weights > 0 else 0
@@ -238,28 +249,18 @@ elif stranka == "Vnitřní hodnota (IV)":
                 if col in ["Titul", "Potenciál %"]: styles[i] = bg
                 if col == "Cena": styles[i] = tc
             return styles
-        
-        column_order = ["Titul", "Cena"]
-        if show_details: column_order += ["› Graham", "› P/E", "› RIM", "P1: Zisk", "› FCF", "› DDM", "P2: CF", "› P/S", "› NAV", "P3: Tržby"]
-        else: column_order += ["P1: Zisk", "P2: CF", "P3: Tržby"]
-        column_order += ["Férová cena", "Potenciál %"]
+        st.dataframe(df_iv.style.apply(apply_all_styles, axis=1).format({"Cena": "{:.2f}"}), use_container_width=True, hide_index=True, height=1000)
 
-        st.dataframe(df_iv.style.apply(apply_all_styles, axis=1).format({"Cena": "{:.2f}"}), use_container_width=True, hide_index=True, height=600, column_order=column_order)
-
-# --- C. KALENDÁŘ & RSI ---
 else:
-    st.subheader("📅 Kalendář výsledků & Technické RSI")
     c_rows, today = [], date.today()
     for item in filtered_data:
-        inf = item["inf"]
-        days_to = safe_date_diff(item["earn"], today)
+        inf = item["inf"]; days_to = safe_date_diff(item["earn"], today)
         ex_dt = datetime.fromtimestamp(inf.get('exDividendDate')).date() if inf.get('exDividendDate') else None
         c_rows.append({
             "Titul": item["name"], "Ticker": item["t"], "Earnings": item["earn"] if not pd.isna(item["earn"]) else "-", "Dní do": days_to,
             "Dividenda": f"{safe_float(inf.get('dividendRate')):.2f} {inf.get('currency', 'USD')}", "Ex-Date": ex_dt.strftime('%d.%m.%Y') if ex_dt else "-", 
             "Doporučení": inf.get('recommendationKey', '-').replace('_', ' ').title(), "RSI": int(item['rsi']), "_rsi": item["rsi"]
         })
-
     df_c = pd.DataFrame(c_rows)
     if not df_c.empty:
         def style_calendar(r):
@@ -274,5 +275,4 @@ else:
             if r["_rsi"] < 35: s[rsi_idx] = 'background-color: #c8e6c9; color: #1b5e20; font-weight: bold'
             elif r["_rsi"] > 65: s[rsi_idx] = 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold'
             return s
-        st.dataframe(df_c.style.apply(style_calendar, axis=1), use_container_width=True, hide_index=True, height=800,
-                    column_order=["Titul", "Ticker", "Earnings", "Dní do", "Dividenda", "Ex-Date", "Doporučení", "RSI"])
+        st.dataframe(df_c.style.apply(style_calendar, axis=1), use_container_width=True, hide_index=True, height=1000)
