@@ -8,15 +8,13 @@ st.set_page_config(page_title="Investiční Terminál", layout="wide")
 
 st.markdown("""
     <style>
-    /* Jemnější odsazení shora, aby nezmizela hlavička */
     .block-container { padding-top: 3.5rem; padding-bottom: 0rem; }
-    
     [data-testid="stDataFrame"] td { text-align: right !important; }
     
-    /* Vylepšené vytučnění prvního sloupce */
+    /* Vynucené zvýraznění prvního sloupce - Modrá a Tučná */
     [data-testid="stDataFrame"] [role="gridcell"]:first-child { 
-        font-weight: 900 !important;
-        color: #003366 !important;
+        font-weight: bold !important;
+        color: #004080 !important;
     }
     
     #MainMenu {visibility: hidden;}
@@ -100,7 +98,6 @@ if stranka == "Scoring Matrix":
     strategie = st.sidebar.selectbox("Strategie:", ["Vlastní", "🛡️ Konzervativní", "⚖️ Vyvážená", "🚀 Růstová"])
     zobrazit_body = st.sidebar.checkbox("⚠️ Detailní body", value=False)
     
-    # Výchozí hodnoty (Vlastní / Vyvážená)
     h_pe, b_pe = [12, 18, 25, 40, 999], [20, 15, 5, 0, -15]
     h_ps, b_ps = [1.5, 3, 6, 10, 999], [15, 10, 5, 0, -10]
 
@@ -191,9 +188,13 @@ if stranka == "Scoring Matrix":
                 if col == "P/E" and val > 25: s[i] = 'background-color: #ffebee'
                 if col == "Dluh D/E" and val > 120: s[i] = 'background-color: #ffcdd2'
             return s
+        
+        # Skrytí všech pomocných _raw sloupců a sloupce Type
+        cols_to_hide = [c for c in df.columns if c.startswith("_raw_")] + ["Type"]
         st.dataframe(df.style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn", vmin=0, vmax=150),
                     use_container_width=True, hide_index=True, height=800,
-                    column_order=["Titul", "Cena", "Změna"] + mapping_keys + ["Score"])
+                    column_order=["Titul", "Cena", "Změna"] + mapping_keys + ["Score"],
+                    column_config={c: None for c in cols_to_hide})
 
 elif stranka == "Vnitřní hodnota (IV)":
     show_details = st.sidebar.toggle("🔓 Zobrazit detailní metody", value=False)
@@ -247,7 +248,9 @@ elif stranka == "Vnitřní hodnota (IV)":
                 if col in ["Titul", "Potenciál %"]: styles[i] = bg
                 if col == "Cena": styles[i] = tc
             return styles
-        st.dataframe(df_iv.style.apply(apply_all_styles, axis=1).format({"Cena": "{:.2f}"}), use_container_width=True, hide_index=True, height=800)
+        st.dataframe(df_iv.style.apply(apply_all_styles, axis=1).format({"Cena": "{:.2f}"}), 
+                    use_container_width=True, hide_index=True, height=800,
+                    column_config={"Potenciál_num": None})
 
 else:
     c_rows, today = [], date.today()
@@ -273,4 +276,6 @@ else:
             if r["_rsi"] < 35: s[rsi_idx] = 'background-color: #c8e6c9; color: #1b5e20; font-weight: bold'
             elif r["_rsi"] > 65: s[rsi_idx] = 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold'
             return s
-        st.dataframe(df_c.style.apply(style_calendar, axis=1), use_container_width=True, hide_index=True, height=800)
+        st.dataframe(df_c.style.apply(style_calendar, axis=1), 
+                    use_container_width=True, hide_index=True, height=800,
+                    column_config={"_rsi": None})
