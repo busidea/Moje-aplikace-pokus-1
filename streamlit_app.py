@@ -3,21 +3,22 @@ import pandas as pd
 import yfinance as yf
 from datetime import datetime, date
 
-# --- 1. KONFIGURACE A STYL (VYLADĚNÍ PROSTORU) ---
+# --- 1. KONFIGURACE A STYL ---
 st.set_page_config(page_title="Investiční Terminál", layout="wide")
 
 st.markdown("""
     <style>
-    /* Odstranění horního paddingu pro maximum místa */
-    .block-container { padding-top: 1rem; padding-bottom: 0rem; }
+    /* Jemnější odsazení shora, aby nezmizela hlavička */
+    .block-container { padding-top: 3.5rem; padding-bottom: 0rem; }
+    
     [data-testid="stDataFrame"] td { text-align: right !important; }
-    /* Tučný první sloupec */
-    [data-testid="stDataFrame"] td:first-child { 
-        text-align: left !important; 
-        font-weight: bold !important;
+    
+    /* Vylepšené vytučnění prvního sloupce */
+    [data-testid="stDataFrame"] [role="gridcell"]:first-child { 
+        font-weight: 900 !important;
         color: #003366 !important;
     }
-    /* Skrytí menu a patičky Streamlitu pro profi vzhled */
+    
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     </style>
@@ -86,7 +87,7 @@ def fetch_all_data(df_input):
 df_raw_list = nacti_seznam(ODKAZ_NA_TABULKU)
 raw_data = fetch_all_data(df_raw_list)
 
-# --- 4. SIDEBAR (NAVIGACE A FILTRY) ---
+# --- 4. SIDEBAR ---
 st.sidebar.markdown("### **📊 Menu**")
 stranka = st.sidebar.radio("Zobrazení:", ["Scoring Matrix", "Vnitřní hodnota (IV)", "Kalendář & RSI"], label_visibility="collapsed")
 st.sidebar.divider()
@@ -96,21 +97,19 @@ filtered_data = [d for d in raw_data if filtr_kat == "Vše" or d["kat"] == filtr
 # --- 5. LOGIKA STRÁNEK ---
 
 if stranka == "Scoring Matrix":
-    # --- TOVÁRNÍ NASTAVENÍ STRATEGIÍ ---
-    strategie = st.sidebar.selectbox("Strategie:", ["Vlastní", "🛡️ Konzervativní", "🚀 Růstová"])
+    strategie = st.sidebar.selectbox("Strategie:", ["Vlastní", "🛡️ Konzervativní", "⚖️ Vyvážená", "🚀 Růstová"])
     zobrazit_body = st.sidebar.checkbox("⚠️ Detailní body", value=False)
     
-    # Definice defaultů podle strategie
-    defaults = {
-        "P/E": {"h": [12, 18, 25, 40, 999], "b": [20, 15, 5, 0, -15]},
-        "P/S": {"h": [1.5, 3, 6, 10, 999], "b": [15, 10, 5, 0, -10]}
-    }
+    # Výchozí hodnoty (Vlastní / Vyvážená)
+    h_pe, b_pe = [12, 18, 25, 40, 999], [20, 15, 5, 0, -15]
+    h_ps, b_ps = [1.5, 3, 6, 10, 999], [15, 10, 5, 0, -10]
+
     if strategie == "🛡️ Konzervativní":
-        defaults["P/E"] = {"h": [10, 15, 20, 30, 999], "b": [25, 15, 0, -10, -30]}
-        defaults["P/S"] = {"h": [1.0, 2, 4, 7, 999], "b": [20, 10, 0, -10, -20]}
+        h_pe, b_pe = [10, 15, 20, 30, 999], [25, 15, 0, -10, -30]
+        h_ps, b_ps = [1.0, 2, 4, 7, 999], [20, 10, 0, -10, -20]
     elif strategie == "🚀 Růstová":
-        defaults["P/E"] = {"h": [20, 35, 50, 80, 999], "b": [15, 25, 15, 5, -5]}
-        defaults["P/S"] = {"h": [3, 6, 12, 20, 999], "b": [10, 15, 20, 5, -10]}
+        h_pe, b_pe = [20, 35, 50, 80, 999], [15, 25, 15, 5, -5]
+        h_ps, b_ps = [3, 6, 12, 20, 999], [10, 15, 20, 5, -10]
 
     def vytvor_p(nazev, zk, def_h, def_b):
         with st.sidebar.expander(f"📊 {nazev}", expanded=False):
@@ -122,8 +121,8 @@ if stranka == "Scoring Matrix":
                 d.append({"h": h, "b": b})
             return d
 
-    p_pe = vytvor_p("P/E", "pe", defaults["P/E"]["h"], defaults["P/E"]["b"])
-    p_ps = vytvor_p("P/S", "ps", defaults["P/S"]["h"], defaults["P/S"]["b"])
+    p_pe = vytvor_p("P/E", "pe", h_pe, b_pe)
+    p_ps = vytvor_p("P/S", "ps", h_ps, b_ps)
     p_pb = vytvor_p("P/B", "pb", [1, 2.5, 4, 8, 999], [10, 7, 3, 0, -5])
     p_pfcf = vytvor_p("P/FCF", "pfcf", [12, 20, 35, 50, 999], [20, 12, 5, 0, -10])
     p_gm = vytvor_p("H-Marže", "gm", [20, 35, 50, 70, 999], [0, 8, 15, 20, 25])
@@ -150,7 +149,6 @@ if stranka == "Scoring Matrix":
         def sg(k, mult=1.0):
             v = inf.get(k); return float(v) * mult if v is not None and str(v) != "None" else 0.0
         
-        # Ošetření dividendy (yfinance někdy vrací 0.035 místo 3.5)
         d_yield = sg("dividendYield")
         if d_yield < 0.2 and d_yield > 0: d_yield *= 100 
 
@@ -194,7 +192,7 @@ if stranka == "Scoring Matrix":
                 if col == "Dluh D/E" and val > 120: s[i] = 'background-color: #ffcdd2'
             return s
         st.dataframe(df.style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn", vmin=0, vmax=150),
-                    use_container_width=True, hide_index=True, height=1000,
+                    use_container_width=True, hide_index=True, height=800,
                     column_order=["Titul", "Cena", "Změna"] + mapping_keys + ["Score"])
 
 elif stranka == "Vnitřní hodnota (IV)":
@@ -249,7 +247,7 @@ elif stranka == "Vnitřní hodnota (IV)":
                 if col in ["Titul", "Potenciál %"]: styles[i] = bg
                 if col == "Cena": styles[i] = tc
             return styles
-        st.dataframe(df_iv.style.apply(apply_all_styles, axis=1).format({"Cena": "{:.2f}"}), use_container_width=True, hide_index=True, height=1000)
+        st.dataframe(df_iv.style.apply(apply_all_styles, axis=1).format({"Cena": "{:.2f}"}), use_container_width=True, hide_index=True, height=800)
 
 else:
     c_rows, today = [], date.today()
@@ -275,4 +273,4 @@ else:
             if r["_rsi"] < 35: s[rsi_idx] = 'background-color: #c8e6c9; color: #1b5e20; font-weight: bold'
             elif r["_rsi"] > 65: s[rsi_idx] = 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold'
             return s
-        st.dataframe(df_c.style.apply(style_calendar, axis=1), use_container_width=True, hide_index=True, height=1000)
+        st.dataframe(df_c.style.apply(style_calendar, axis=1), use_container_width=True, hide_index=True, height=800)
