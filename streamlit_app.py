@@ -6,9 +6,10 @@ from datetime import datetime, date
 # --- 1. KONFIGURACE A STYL ---
 st.set_page_config(page_title="Investiční Terminál", layout="wide")
 
+# Opravený padding-top, aby tabulky nezajížděly pod horní lištu Streamlitu
 st.markdown("""
     <style>
-    .block-container { padding-top: 1rem; padding-bottom: 0rem; }
+    .block-container { padding-top: 3.5rem; padding-bottom: 0rem; }
     [data-testid="stDataFrame"] td { text-align: right !important; }
     
     /* Vynucené zvýraznění prvního sloupce - Modrá a Tučná */
@@ -90,8 +91,6 @@ filtered_data = [d for d in raw_data if filtr_kat == "Vše" or d["kat"] == filtr
 
 # --- 5. LOGIKA STRÁNEK ---
 if stranka == "Scoring Matrix":
-    # NADPIS ODSTRANĚN PRO MAXIMÁLNÍ PROSTOR
-    
     strategie = st.sidebar.selectbox("Strategie:", ["Vlastní", "🛡️ Konzervativní", "⚖️ Vyvážená", "🚀 Růstová"])
     zobrazit_body = st.sidebar.checkbox("⚠️ Detailní body", value=False)
     
@@ -105,7 +104,6 @@ if stranka == "Scoring Matrix":
         h_pe, b_pe = [20, 35, 50, 80, 999], [15, 25, 15, 5, -5]
         h_ps, b_ps = [3, 6, 12, 20, 999], [10, 15, 20, 5, -10]
 
-    # DEFINICE TEXTŮ PRO JEDNOTLIVÉ UKAZATELE (PUNTÍKY / OTALNÍČKY V SIDEBARU)
     napovedy = {
         "P/E": "Poměr ceny a zisku.\n• < 15 optimální (levné)\n• 15–25 akceptovatelné\n• > 25 varovné (drahé)",
         "P/S": "Poměr ceny a tržeb.\n• < 2 optimální\n• 2–5 akceptovatelné\n• > 6 riskantní (přehřáté)",
@@ -122,7 +120,6 @@ if stranka == "Scoring Matrix":
     }
 
     def vytvor_p(nazev, zk, def_h, def_b):
-        # Sem jsme přidali argument help=, který vytvoří onen vyskakovací puntík s legendou pro konkrétní ukazatel
         with st.sidebar.expander(f"📊 {nazev}", expanded=False):
             st.caption(napovedy.get(nazev, ""))
             st.divider()
@@ -224,8 +221,6 @@ if stranka == "Scoring Matrix":
                     column_config=nastaveni_sloupcu)
 
 elif stranka == "Vnitřní hodnota (IV)":
-    # NADPIS ODSTRANĚN PRO MAXIMÁLNÍ PROSTOR
-    
     show_details = st.sidebar.toggle("🔓 Zobrazit detailní metody", value=False)
     with st.sidebar.expander("⚖️ Váhy pilířů", expanded=False):
         w1 = st.slider("Váha P1 (Ziskové)", 0, 100, 33)
@@ -282,9 +277,6 @@ elif stranka == "Vnitřní hodnota (IV)":
                     column_config={"Potenciál_num": None})
 
 else:
-    # NADPIS ODSTRANĚN PRO MAXIMÁLNÍ PROSTOR
-    
-    # Rozbalovací legenda pro RSI a Analytiky ponechána pouze na této záložce
     with st.expander("ℹ️ Legenda k RSI a Doporučení analytiků", expanded=False):
         c1, c2 = st.columns(2)
         with c1:
