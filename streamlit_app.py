@@ -8,7 +8,7 @@ st.set_page_config(page_title="Investiční Terminál", layout="wide")
 
 st.markdown("""
     <style>
-    .block-container { padding-top: 3.5rem; padding-bottom: 0rem; }
+    .block-container { padding-top: 2rem; padding-bottom: 0rem; }
     [data-testid="stDataFrame"] td { text-align: right !important; }
     
     /* Vynucené zvýraznění prvního sloupce - Modrá a Tučná */
@@ -80,35 +80,39 @@ def fetch_all_data(df_input):
 df_raw_list = nacti_seznam(ODKAZ_NA_TABULKU)
 raw_data = fetch_all_data(df_raw_list)
 
-# --- 4. SIDEBAR ---
+# --- 4. SIDEBAR (ČISTÝ BEZ LEGENDY) ---
 st.sidebar.markdown("### **📊 Menu**")
 stranka = st.sidebar.radio("Zobrazení:", ["Scoring Matrix", "Vnitřní hodnota (IV)", "Kalendář & RSI"], label_visibility="collapsed")
 st.sidebar.divider()
-
-# --- INTERAKTIVNÍ LEGENDA ---
-with st.sidebar.popover("ℹ️ Zobrazit Legendu (RSI & Analytici)", use_container_width=True):
-    st.markdown("### 📈 Doporučení analytiků")
-    st.caption("**Kdo to vydává?** Konsenzus předních investičních bank z Wall Street agregovaný Yahoo Finance.")
-    st.caption("**Horizont:** Střednědobý až dlouhodobý (6-12 měsíců). Vyjadřuje očekávaný výnos vůči indexu S&P 500.")
-    st.markdown("""
-    - **Strong Buy / Buy:** Silný fundament a katalyzátory. Vhodné pro akumulaci pozic.
-    - **Hold:** Akcie je férově oceněná. Nedoporučuje se nakupovat ani prodávat.
-    - **Underperform / Sell:** Očekává se slabší výkonnost nebo zhoršení výsledků.
-    """)
-    st.divider()
-    st.markdown("### 📊 Indikátor RSI")
-    st.caption("**Co to je?** Momentum oscilátor (0-100) měřící rychlost a sílu cenových pohybů. Ukazuje náladu trhu.")
-    st.markdown("""
-    - **RSI > 70 (Překoupeno / Červená):** Trh je přehřátý, roste riziko krátkodobé korekce dolů.
-    - **RSI < 35 (Přeprodáno / Zelená):** Na trhu vládne panika/výprodej, roste šance na odraz nahoru (sleva).
-    - **35 až 70 (Neutrální):** Běžný trend bez extrémních emocí trhu.
-    """)
 
 filtr_kat = st.sidebar.selectbox("Filtr kategorií:", ["Portfolio", "Sledované", "Vše"], index=0)
 filtered_data = [d for d in raw_data if filtr_kat == "Vše" or d["kat"] == filtr_kat]
 
 # --- 5. LOGIKA STRÁNEK ---
 if stranka == "Scoring Matrix":
+    st.subheader("Scoring Matrix")
+    
+    # --- NOVÁ LEGENDA PRO UKAZATELE (PŘÍMO NA STRÁNCE MATRIXU) ---
+    with st.expander("ℹ️ Legenda k finančním ukazatelům (Optimální / Varovné hodnoty)", expanded=False):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown("**Valuace (Cena)**")
+            st.caption("• **P/E (Poměr ceny a zisku):** < 15 optimální (levné) | 15–25 akceptovatelné | > 25 varovné / drahé (u růstových akcií tolerováno více).")
+            st.caption("• **P/S (Poměr ceny a tržeb):** < 2 optimální | 2–5 akceptovatelné | > 6 riskantní (přehřáté).")
+            st.caption("• **P/B (Cena / Účetní hodnota):** < 1.5 skvělé (kryto majetkem) | > 4 varovné.")
+            st.caption("• **P/FCF (Cena / Volné cashflow):** < 15 ideální stroj na peníze | > 35 drahé.")
+        with c2:
+            st.markdown("**Rentabilita & Růst**")
+            st.caption("• **H-Marže (Hrubá):** > 50% excelentní (silný produkt) | 20%–50% běžný průměr | < 20% slabá konkurenceschopnost.")
+            st.caption("• **Č-Marže (Čistá):** > 15% optimální | 5%–15% akceptovatelné | < 5% velmi křehké podnikání.")
+            st.caption("• **ROE (Návratnost kapitálu):** > 15% optimální efektivita | < 8% manažersky slabé.")
+            st.caption("• **Tržby & Zisk y/y:** > 10% stabilní růst | > 25% raketový růst | Záporné hodnoty = varovný úpadek.")
+        with c3:
+            st.markdown("**Riziko & Výhled**")
+            st.caption("• **Dluh D/E (Dluh k vlastnímu kapitálu):** < 60% bezpečné | 60%–120% akceptovatelné | > 120% vysoké dluhové zatížení (červené podbarvení).")
+            st.caption("• **Div. výnos:** 2%–5% zdravá dividenda | > 8% pozor na 'past na dividendu' (udržitelnost).")
+            st.caption("• **Potenciál (Wall Street):** > 15% analytici věří v růst | Záporný = trh považuje akcii za překonanou.")
+
     strategie = st.sidebar.selectbox("Strategie:", ["Vlastní", "🛡️ Konzervativní", "⚖️ Vyvážená", "🚀 Růstová"])
     zobrazit_body = st.sidebar.checkbox("⚠️ Detailní body", value=False)
     
@@ -181,11 +185,11 @@ if stranka == "Scoring Matrix":
             vw = w_map["v"] if k in ["P/E","P/S","P/B","P/FCF"] else (w_map["p"] if "Marže" in k or "ROE" in k else (w_map["g"] if k in ["Tržby y/y","Zisk y/y","Div. výnos","Potenciál"] else w_map["r"]))
             b = get_b(raw_vals[k], p_map[k]) * vw
             total += b
-            row_p[k] = float(int(round(b)))  # Zachováme jako float pro správné řazení bodů
+            row_p[k] = float(int(round(b)))
 
         row_v = {"Titul": name, "Type": "Value", "Změna": raw_vals["Změna"], "Cena": raw_vals["Cena"], "Score": int(total)}
         for k in mapping_keys:
-            row_v[k] = raw_vals[k] # Ukládáme ČISTÁ ČÍSLA pro precizní řazení
+            row_v[k] = raw_vals[k]
         
         m_rows.append(row_v)
         if zobrazit_body: m_rows.append(row_p)
@@ -203,7 +207,6 @@ if stranka == "Scoring Matrix":
                 if col == "Dluh D/E" and isinstance(val, (int, float)) and val > 120: s[i] = 'background-color: #ffcdd2'
             return s
         
-        # --- DYNAMICKÉ FORMÁTOVÁNÍ SLOUPCŮ BEZ ROZBITÍ ŘAZENÍ ---
         nastaveni_sloupcu = {
             "Type": None,
             "Cena": st.column_config.NumberColumn("Cena", format="%.2f"),
@@ -211,7 +214,6 @@ if stranka == "Scoring Matrix":
             "Score": st.column_config.NumberColumn("Score", format="%d")
         }
         
-        # Automaticky nastavíme formátování pro všechny finanční ukazatele
         for k in mapping_keys:
             if k in pct_cols:
                 nastaveni_sloupcu[k] = st.column_config.NumberColumn(k, format="%.1f%%")
@@ -219,11 +221,12 @@ if stranka == "Scoring Matrix":
                 nastaveni_sloupcu[k] = st.column_config.NumberColumn(k, format="%.1f")
 
         st.dataframe(df.style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn", vmin=0, vmax=150),
-                    use_container_width=True, hide_index=True, height=800,
+                    use_container_width=True, hide_index=True, height=750,
                     column_order=["Titul", "Cena", "Změna"] + mapping_keys + ["Score"],
                     column_config=nastaveni_sloupcu)
 
 elif stranka == "Vnitřní hodnota (IV)":
+    st.subheader("Výpočet Vnitřní Hodnoty (Intrinsic Value)")
     show_details = st.sidebar.toggle("🔓 Zobrazit detailní metody", value=False)
     with st.sidebar.expander("⚖️ Váhy pilířů", expanded=False):
         w1 = st.slider("Váha P1 (Ziskové)", 0, 100, 33)
@@ -280,6 +283,28 @@ elif stranka == "Vnitřní hodnota (IV)":
                     column_config={"Potenciál_num": None})
 
 else:
+    st.subheader("Kalendář výsledků & Technické RSI")
+    
+    # --- PŘESUNUTÁ LEGENDA PRO RSI A ANALYTIKY (POUZE ZDE) ---
+    with st.expander("ℹ️ Legenda k RSI a Doporučení analytiků", expanded=False):
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("### 📈 Doporučení analytiků")
+            st.caption("**Zdroj:** Konsenzus bank z Wall Street (Yahoo Finance), horizont 6-12 měsíců.")
+            st.markdown("""
+            - **Strong Buy / Buy (Zelená):** Silný fundament, analytici očekávají překonání trhu.
+            - **Hold:** Férové ocenění, neutrální výhled.
+            - **Underperform / Sell (Červená):** Očekávané zhoršení výsledků nebo nadhodnocení.
+            """)
+        with c2:
+            st.markdown("### 📊 Indikátor RSI (Momentum)")
+            st.caption("**Zdroj:** Matematický výpočet za posledních 14 dní (rychlost pohybu ceny).")
+            st.markdown("""
+            - **RSI > 65 (Překoupeno / Červená):** Trh propadl euforii, akcie je krátkodobě drahá, hrozí korekce.
+            - **RSI < 35 (Přeprodáno / Zelená):** Na trhu je panika/výprodej, akcie je v technické 'slevě'.
+            - **35 až 65:** Neutrální zóna.
+            """)
+
     c_rows, today = [], date.today()
     for item in filtered_data:
         inf = item["inf"]; days_to = safe_date_diff(item["earn"], today)
