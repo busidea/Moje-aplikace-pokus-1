@@ -89,11 +89,30 @@ raw_data = fetch_all_data(df_raw_list)
 st.sidebar.markdown("### **📊 Menu**")
 stranka = st.sidebar.radio("Zobrazení:", ["Scoring Matrix", "Vnitřní hodnota (IV)", "Kalendář & RSI"], label_visibility="collapsed")
 st.sidebar.divider()
+
+# --- INTERAKTIVNÍ LEGENDA (POPOVER CHRÁNÍ RYCHLOST APLIKACE) ---
+with st.sidebar.popover("ℹ️ Zobrazit Legendu (RSI & Analytici)", use_container_width=True):
+    st.markdown("### 📈 Doporučení analytiků")
+    st.caption("**Kdo to vydává?** Konsenzus předních investičních bank z Wall Street agregovaný Yahoo Finance.")
+    st.caption("**Horizont:** Střednědobý až dlouhodobý (6-12 měsíců). Vyjadřuje očekávaný výnos vůči indexu S&P 500.")
+    st.markdown("""
+    - **Strong Buy / Buy:** Silný fundament a katalyzátory. Vhodné pro akumulaci pozic.
+    - **Hold:** Akcie je férově oceněná. Nedoporučuje se nakupovat ani prodávat.
+    - **Underperform / Sell:** Očekává se slabší výkonnost nebo zhoršení výsledků.
+    """)
+    st.divider()
+    st.markdown("### 📊 Indikátor RSI")
+    st.caption("**Co to je?** Momentum oscilátor (0-100) měřící rychlost a sílu cenových pohybů. Ukazuje náladu trhu.")
+    st.markdown("""
+    - **RSI > 70 (Překoupeno / Červená):** Trh je přehřátý, roste riziko krátkodobé korekce dolů.
+    - **RSI < 35 (Přeprodáno / Zelená):** Na trhu vládne panika/výprodej, roste šance na odraz nahoru (sleva).
+    - **35 až 70 (Neutrální):** Běžný trend bez extrémních emocí trhu.
+    """)
+
 filtr_kat = st.sidebar.selectbox("Filtr kategorií:", ["Portfolio", "Sledované", "Vše"], index=0)
 filtered_data = [d for d in raw_data if filtr_kat == "Vše" or d["kat"] == filtr_kat]
 
 # --- 5. LOGIKA STRÁNEK ---
-
 if stranka == "Scoring Matrix":
     strategie = st.sidebar.selectbox("Strategie:", ["Vlastní", "🛡️ Konzervativní", "⚖️ Vyvážená", "🚀 Růstová"])
     zobrazit_body = st.sidebar.checkbox("⚠️ Detailní body", value=False)
@@ -189,7 +208,6 @@ if stranka == "Scoring Matrix":
                 if col == "Dluh D/E" and val > 120: s[i] = 'background-color: #ffcdd2'
             return s
         
-        # Skrytí všech pomocných _raw sloupců a sloupce Type
         cols_to_hide = [c for c in df.columns if c.startswith("_raw_")] + ["Type"]
         st.dataframe(df.style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn", vmin=0, vmax=150),
                     use_container_width=True, hide_index=True, height=800,
