@@ -43,11 +43,6 @@ def get_b(val, pasma):
         if val <= p["h"]: return p["b"]
     return pasma[-1]["b"]
 
-def fmt(val, precision=1, is_pct=False):
-    if val is None or val == 0: return "0.0" + ("%" if is_pct else "")
-    res = f"{val:.{precision}f}"
-    return res + "%" if is_pct else res
-
 # --- 3. NAČTENÍ DAT ---
 ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
 
@@ -90,7 +85,7 @@ st.sidebar.markdown("### **📊 Menu**")
 stranka = st.sidebar.radio("Zobrazení:", ["Scoring Matrix", "Vnitřní hodnota (IV)", "Kalendář & RSI"], label_visibility="collapsed")
 st.sidebar.divider()
 
-# --- INTERAKTIVNÍ LEGENDA (POPOVER CHRÁNÍ RYCHLOST APLIKACE) ---
+# --- INTERAKTIVNÍ LEGENDA ---
 with st.sidebar.popover("ℹ️ Zobrazit Legendu (RSI & Analytici)", use_container_width=True):
     st.markdown("### 📈 Doporučení analytiků")
     st.caption("**Kdo to vydává?** Konsenzus předních investičních bank z Wall Street agregovaný Yahoo Finance.")
@@ -186,13 +181,12 @@ if stranka == "Scoring Matrix":
             vw = w_map["v"] if k in ["P/E","P/S","P/B","P/FCF"] else (w_map["p"] if "Marže" in k or "ROE" in k else (w_map["g"] if k in ["Tržby y/y","Zisk y/y","Div. výnos","Potenciál"] else w_map["r"]))
             b = get_b(raw_vals[k], p_map[k]) * vw
             total += b
-            row_p[k] = str(int(round(b)))
+            row_p[k] = float(int(round(b)))  # Zachováme jako float pro správné řazení bodů
 
-        row_v = {"Titul": name, "Type": "Value", "_change": raw_vals["Změna"], "Score": int(total)}
+        row_v = {"Titul": name, "Type": "Value", "Změna": raw_vals["Změna"], "Cena": raw_vals["Cena"], "Score": int(total)}
         for k in mapping_keys:
-            row_v[k] = fmt(raw_vals[k], 1, k in pct_cols)
-            row_v[f"_raw_{k}"] = raw_vals[k]
-        row_v["Cena"], row_v["Změna"] = fmt(raw_vals["Cena"], 2), fmt(raw_vals["Změna"], 1, True)
+            row_v[k] = raw_vals[k] # Ukládáme ČISTÁ ČÍSLA pro precizní řazení
+        
         m_rows.append(row_v)
         if zobrazit_body: m_rows.append(row_p)
 
@@ -202,17 +196,32 @@ if stranka == "Scoring Matrix":
             s = [''] * len(r)
             if r.get("Type") == "Points": return ['color: #888; font-style: italic; background-color: #f8f9fa'] * len(r)
             for i, col in enumerate(r.index):
-                if col in ["Cena", "Změna"]: s[i] = f"color: {'#1b5e20' if r['_change']>0 else '#b71c1c'}; font-weight: bold"
-                val = r.get(f"_raw_{col}", 0)
-                if col == "P/E" and val > 25: s[i] = 'background-color: #ffebee'
-                if col == "Dluh D/E" and val > 120: s[i] = 'background-color: #ffcdd2'
+                if col in ["Cena", "Změna"]: 
+                    s[i] = f"color: {'#1b5e20' if r['Změna']>0 else '#b71c1c'}; font-weight: bold"
+                val = r.get(col, 0)
+                if col == "P/E" and isinstance(val, (int, float)) and val > 25: s[i] = 'background-color: #ffebee'
+                if col == "Dluh D/E" and isinstance(val, (int, float)) and val > 120: s[i] = 'background-color: #ffcdd2'
             return s
         
-        cols_to_hide = [c for c in df.columns if c.startswith("_raw_")] + ["Type"]
+        # --- DYNAMICKÉ FORMÁTOVÁNÍ SLOUPCŮ BEZ ROZBITÍ ŘAZENÍ ---
+        nastaveni_sloupcu = {
+            "Type": None,
+            "Cena": st.column_config.NumberColumn("Cena", format="%.2f"),
+            "Změna": st.column_config.NumberColumn("Změna", format="%.1f%%"),
+            "Score": st.column_config.NumberColumn("Score", format="%d")
+        }
+        
+        # Automaticky nastavíme formátování pro všechny finanční ukazatele
+        for k in mapping_keys:
+            if k in pct_cols:
+                nastaveni_sloupcu[k] = st.column_config.NumberColumn(k, format="%.1f%%")
+            else:
+                nastaveni_sloupcu[k] = st.column_config.NumberColumn(k, format="%.1f")
+
         st.dataframe(df.style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn", vmin=0, vmax=150),
                     use_container_width=True, hide_index=True, height=800,
                     column_order=["Titul", "Cena", "Změna"] + mapping_keys + ["Score"],
-                    column_config={c: None for c in cols_to_hide})
+                    column_config=nastaveni_sloupcu)
 
 elif stranka == "Vnitřní hodnota (IV)":
     show_details = st.sidebar.toggle("🔓 Zobrazit detailní metody", value=False)
