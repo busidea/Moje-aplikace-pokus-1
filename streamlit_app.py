@@ -6,7 +6,7 @@ from datetime import datetime, date
 # --- 1. KONFIGURACE A STYL ---
 st.set_page_config(page_title="Investiční Terminál", layout="wide")
 
-# Opravený padding-top, aby tabulky nezajížděly pod horní lištu Streamlitu
+# Správné odsazení (padding-top), aby záhlaví tabulek nezajížděla pod horní lištu
 st.markdown("""
     <style>
     .block-container { padding-top: 3.5rem; padding-bottom: 0rem; }
@@ -104,6 +104,7 @@ if stranka == "Scoring Matrix":
         h_pe, b_pe = [20, 35, 50, 80, 999], [15, 25, 15, 5, -5]
         h_ps, b_ps = [3, 6, 12, 20, 999], [10, 15, 20, 5, -10]
 
+    # Knihovna nápověd pro otazníčky v sidebaru
     napovedy = {
         "P/E": "Poměr ceny a zisku.\n• < 15 optimální (levné)\n• 15–25 akceptovatelné\n• > 25 varovné (drahé)",
         "P/S": "Poměr ceny a tržeb.\n• < 2 optimální\n• 2–5 akceptovatelné\n• > 6 riskantní (přehřáté)",
