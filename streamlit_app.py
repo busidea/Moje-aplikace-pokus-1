@@ -6,7 +6,6 @@ from datetime import datetime, date
 # --- 1. KONFIGURACE A STYL ---
 st.set_page_config(page_title="Investiční Terminál", layout="wide")
 
-# Opravený padding-top, aby tabulky nezajížděly pod horní lištu Streamlitu
 st.markdown("""
     <style>
     .block-container { padding-top: 3.5rem; padding-bottom: 0rem; }
@@ -44,7 +43,7 @@ def get_b(val, pasma):
         if val <= p["h"]: return p["b"]
     return pasma[-1]["b"]
 
-# --- 3. NAČTENÍ DAT ---
+# --- 3. NAČTENÍ DAT A HISTORICKÁ CACHE ---
 ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
 
 @st.cache_data(ttl=300)
@@ -57,6 +56,40 @@ def nacti_seznam(odkaz):
         return df
     except: return pd.DataFrame()
 
+# Těžká historická data kešujeme na 24 hodin (86400 sekund), abychom nehltili Yahoo
+@st.cache_data(ttl=86400)
+def fetch_historical_averages(ticker_symbol, current_gm, current_nm, current_roe):
+    try:
+        tk = yf.Ticker(ticker_symbol)
+        fin = tk.financials
+        bs = tk.balance_sheet
+        
+        # Hrubá marže 3Y
+        gm_3y = current_gm
+        if fin is not None and not fin.empty and 'Gross Profit' in fin.index and 'Total Revenue' in fin.index:
+            roky = fin.columns[:3]
+            vals = [fin.loc['Gross Profit', r] / fin.loc['Total Revenue', r] for r in roky if fin.loc['Total Revenue', r] > 0]
+            if vals: gm_3y = (sum(vals) / len(vals)) * 100
+
+        # Čistá marže 3Y
+        nm_3y = current_nm
+        if fin is not None and not fin.empty and 'Net Income' in fin.index and 'Total Revenue' in fin.index:
+            roky = fin.columns[:3]
+            vals = [fin.loc['Net Income', r] / fin.loc['Total Revenue', r] for r in roky if fin.loc['Total Revenue', r] > 0]
+            if vals: nm_3y = (sum(vals) / len(vals)) * 100
+
+        # ROE 3Y
+        roe_3y = current_roe
+        if fin is not None and not fin.empty and bs is not None and not bs.empty and 'Net Income' in fin.index and 'Stockholders Equity' in bs.index:
+            roky = [r for r in fin.columns[:3] if r in bs.columns]
+            vals = [fin.loc['Net Income', r] / bs.loc['Stockholders Equity', r] for r in roky if bs.loc['Stockholders Equity', r] > 0]
+            if vals: roe_3y = (sum(vals) / len(vals)) * 100
+            
+        return safe_float(gm_3y), safe_float(nm_3y), safe_float(roe_3y)
+    except:
+        return current_gm, current_nm, current_roe  # Fallback na aktuální hodnoty při chybě
+
+# Tržní data kešujeme na 1 hodinu
 @st.cache_data(ttl=3600)
 def fetch_all_data(df_input):
     res = []
@@ -69,16 +102,26 @@ def fetch_all_data(df_input):
             if len(hi) > 14:
                 d = hi['Close'].diff(); g = d.where(d > 0, 0).rolling(14).mean(); l = -d.where(d < 0, 0).rolling(14).mean()
                 rsi = 100 - (100 / (1 + (g.iloc[-1]/l.iloc[-1]))) if l.iloc[-1] != 0 else 50
+            
+            # Aktuální roční hodnoty z info (základ pro průměry)
+            c_gm = safe_float(inf.get('grossMargins', 0)) * 100
+            c_nm = safe_float(inf.get('profitMargins', 0)) * 100
+            c_roe = safe_float(inf.get('returnOnEquity', 0)) * 100
+            
+            # Načtení 3Y průměrů z denní cache
+            gm_3y, nm_3y, roe_3y = fetch_historical_averages(t, c_gm, c_nm, c_roe)
+
             res.append({
                 "t": t, "inf": inf, "rsi": rsi, 
                 "kat": str(row.get('Kategorie')), 
                 "earn": row.get('Earnings Day'),
-                "name": inf.get('longName', t)
+                "name": inf.get('longName', t),
+                "gm_3y": gm_3y, "nm_3y": nm_3y, "roe_3y": roe_3y
             })
         except: continue
     return res
 
-df_raw_list = nacti_seznam(ODKAZ_NA_TABULKU)
+df_raw_list = nacti_seznam(ODKAK_NA_TABULKU) if 'ODKAK_NA_TABULKU' in locals() else nacti_seznam(ODKAZ_NA_TABULKU)
 raw_data = fetch_all_data(df_raw_list)
 
 # --- 4. SIDEBAR ---
@@ -94,8 +137,12 @@ if stranka == "Scoring Matrix":
     strategie = st.sidebar.selectbox("Strategie:", ["Vlastní", "🛡️ Konzervativní", "⚖️ Vyvážená", "🚀 Růstová"])
     zobrazit_body = st.sidebar.checkbox("⚠️ Detailní body", value=False)
     
+    # Výchozí konfigurace pásem
     h_pe, b_pe = [12, 18, 25, 40, 999], [20, 15, 5, 0, -15]
     h_ps, b_ps = [1.5, 3, 6, 10, 999], [15, 10, 5, 0, -10]
+    h_gm, b_gm = [20, 35, 50, 70, 999], [0, 8, 15, 20, 25]
+    h_nm, b_nm = [10, 20, 30, 45, 999], [0, 10, 18, 22, 30]
+    h_roe, b_roe = [12, 22, 35, 55, 999], [0, 10, 15, 20, 25]
 
     if strategie == "🛡️ Konzervativní":
         h_pe, b_pe = [10, 15, 20, 30, 999], [25, 15, 0, -10, -30]
@@ -105,18 +152,21 @@ if stranka == "Scoring Matrix":
         h_ps, b_ps = [3, 6, 12, 20, 999], [10, 15, 20, 5, -10]
 
     napovedy = {
-        "P/E": "Poměr ceny a zisku.\n• < 15 optimální (levné)\n• 15–25 akceptovatelné\n• > 25 varovné (drahé)",
-        "P/S": "Poměr ceny a tržeb.\n• < 2 optimální\n• 2–5 akceptovatelné\n• > 6 riskantní (přehřáté)",
-        "P/B": "Cena / Účetní hodnota.\n• < 1.5 skvělé (kryto majetkem)\n• > 4 varovné",
-        "P/FCF": "Cena / Volné cashflow.\n• < 15 ideální (generuje hotovost)\n• > 35 drahé",
-        "H-Marže": "Hrubá marže.\n• > 50% excelentní (silný produkt)\n• 20%–50% běžný průměr\n• < 20% slabé",
-        "Č-Marže": "Čistá marže.\n• > 15% optimální\n• 5%–15% běžné\n• < 5% velmi křehké",
-        "ROE": "Návratnost kapitálu.\n• > 15% optimální efektivita\n• < 8% manažersky slabé",
-        "Tržby y/y": "Meziroční růst tržeb.\n• > 10% stabilní růst\n• > 25% raketový růst\n• Záporné = úpadek",
-        "Zisk y/y": "Meziroční růst zisku.\n• > 10% zdravý růst\n• Záporné hodnoty = varovný pokles ziskovosti",
-        "Dluh D/E": "Dluh k vlastnímu kapitálu.\n• < 60% bezpečné\n• 60%–120% akceptovatelné\n• > 120% vysoké riziko",
-        "Div. výnos": "Roční dividendový výnos.\n• 2%–5% zdravá dividenda\n• > 8% pozor na neudržitelnost (past na dividendu)",
-        "Potenciál": "Cílová cena analytiků vs současná.\n• > 15% trh věří v růst\n• Záporný = očekává se pokles"
+        "P/E": "Poměr ceny a zisku.\n• < 15 optimální\n• > 25 varovné",
+        "P/S": "Poměr ceny a tržeb.",
+        "P/B": "Cena / Účetní hodnota.",
+        "P/FCF": "Cena / Volné cashflow.",
+        "H-Marže": "Aktuální hrubá marže.",
+        "H-Marže 3Y": "3letý průměr hrubé marže. Ukazuje dlouhodobou stabilitu.",
+        "Č-Marže": "Aktuální čistá marže.",
+        "Č-Marže 3Y": "3letý průměr čisté marže.",
+        "ROE": "Aktuální návratnost kapitálu.",
+        "ROE 3Y": "3letý průměr ROE.",
+        "Tržby y/y": "Meziroční růst tržeb.",
+        "Zisk y/y": "Meziroční růst zisku.",
+        "Dluh D/E": "Dluh k vlastnímu kapitálu.",
+        "Div. výnos": "Roční dividendový výnos.",
+        "Potenciál": "Cílová cena analytiků vs současná."
     }
 
     def vytvor_p(nazev, zk, def_h, def_b):
@@ -135,9 +185,17 @@ if stranka == "Scoring Matrix":
     p_ps = vytvor_p("P/S", "ps", h_ps, b_ps)
     p_pb = vytvor_p("P/B", "pb", [1, 2.5, 4, 8, 999], [10, 7, 3, 0, -5])
     p_pfcf = vytvor_p("P/FCF", "pfcf", [12, 20, 35, 50, 999], [20, 12, 5, 0, -10])
-    p_gm = vytvor_p("H-Marže", "gm", [20, 35, 50, 70, 999], [0, 8, 15, 20, 25])
-    p_nm = vytvor_p("Č-Marže", "nm", [10, 20, 30, 45, 999], [0, 10, 18, 22, 30])
-    p_roe = vytvor_p("ROE", "roe", [12, 22, 35, 55, 999], [0, 10, 15, 20, 25])
+    
+    # Párové sekce: Aktuální a 3Y průměry
+    p_gm = vytvor_p("H-Marže", "gm", h_gm, b_gm)
+    p_gm_3y = vytvor_p("H-Marže 3Y", "gm3y", h_gm, b_gm)
+    
+    p_nm = vytvor_p("Č-Marže", "nm", b_nm, b_nm) if strategie == "Vlastní" else vytvor_p("Č-Marže", "nm", h_nm, b_nm)
+    p_nm_3y = vytvor_p("Č-Marže 3Y", "nm3y", h_nm, b_nm)
+    
+    p_roe = vytvor_p("ROE", "roe", h_roe, b_roe)
+    p_roe_3y = vytvor_p("ROE 3Y", "roe3y", h_roe, b_roe)
+    
     p_rev = vytvor_p("Tržby y/y", "rev", [0, 10, 20, 35, 999], [-10, 8, 15, 25, 35])
     p_eps = vytvor_p("Zisk y/y", "eps", [0, 10, 25, 45, 999], [-15, 10, 20, 28, 40])
     p_deb = vytvor_p("Dluh D/E", "deb", [40, 80, 120, 200, 999], [20, 10, 0, -15, -40])
@@ -150,8 +208,8 @@ if stranka == "Scoring Matrix":
     w_growth = st.sidebar.slider("Váha: Růst", 0.5, 3.0, 1.0)
     w_risk = st.sidebar.slider("Váha: Riziko", 0.5, 3.0, 1.0)
 
-    mapping_keys = ["P/E", "P/S", "P/B", "P/FCF", "H-Marže", "Č-Marže", "ROE", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Potenciál"]
-    pct_cols = ["Změna", "H-Marže", "Č-Marže", "ROE", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Potenciál"]
+    mapping_keys = ["P/E", "P/S", "P/B", "P/FCF", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Potenciál"]
+    pct_cols = ["Změna", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Potenciál"]
     m_rows = []
 
     for item in filtered_data:
@@ -166,18 +224,26 @@ if stranka == "Scoring Matrix":
             "Cena": sg("currentPrice"), "Změna": ((sg("currentPrice")/sg("previousClose", 1.0))-1)*100 if sg("previousClose") else 0,
             "P/E": sg("trailingPE") or sg("forwardPE"), "P/S": sg("priceToSalesTrailing12Months"), 
             "P/B": sg("priceToBook"), "P/FCF": sg("marketCap")/sg("freeCashflow") if sg("freeCashflow") else 0,
-            "H-Marže": sg("grossMargins", 100), "Č-Marže": sg("profitMargins", 100), "ROE": sg("returnOnEquity", 100), 
+            "H-Marže": sg("grossMargins", 100), "H-Marže 3Y": item["gm_3y"],
+            "Č-Marže": sg("profitMargins", 100), "Č-Marže 3Y": item["nm_3y"],
+            "ROE": sg("returnOnEquity", 100), "ROE 3Y": item["roe_3y"],
             "Tržby y/y": sg("revenueGrowth", 100), "Zisk y/y": sg("earningsGrowth", 100), "Dluh D/E": sg("debtToEquity"), 
             "Div. výnos": d_yield, "Potenciál": ((sg("targetMeanPrice")/sg("currentPrice", 1.0))-1)*100 if sg("targetMeanPrice") else 0
         }
 
         total = 0
         row_p = {"Titul": f"   └ body ({t})", "Type": "Points"}
-        p_map = {"P/E":p_pe,"P/S":p_ps,"P/B":p_pb,"P/FCF":p_pfcf,"H-Marže":p_gm,"Č-Marže":p_nm,"ROE":p_roe,"Tržby y/y":p_rev,"Zisk y/y":p_eps,"Dluh D/E":p_deb,"Div. výnos":p_div,"Potenciál":p_pot}
-        w_map = {"v":w_val,"p":w_prof,"g":w_growth,"r":w_risk}
+        p_map = {
+            "P/E": p_pe, "P/S": p_ps, "P/B": p_pb, "P/FCF": p_pfcf,
+            "H-Marže": p_gm, "H-Marže 3Y": p_gm_3y, 
+            "Č-Marže": p_nm, "Č-Marže 3Y": p_nm_3y, 
+            "ROE": p_roe, "ROE 3Y": p_roe_3y,
+            "Tržby y/y": p_rev, "Zisk y/y": p_eps, "Dluh D/E": p_deb, "Div. výnos": p_div, "Potenciál": p_pot
+        }
+        w_map = {"v": w_val, "p": w_prof, "g": w_growth, "r": w_risk}
 
         for k in mapping_keys:
-            vw = w_map["v"] if k in ["P/E","P/S","P/B","P/FCF"] else (w_map["p"] if "Marže" in k or "ROE" in k else (w_map["g"] if k in ["Tržby y/y","Zisk y/y","Div. výnos","Potenciál"] else w_map["r"]))
+            vw = w_map["v"] if k in ["P/E", "P/S", "P/B", "P/FCF"] else (w_map["p"] if "Marže" in k or "ROE" in k else (w_map["g"] if k in ["Tržby y/y", "Zisk y/y", "Div. výnos", "Potenciál"] else w_map["r"]))
             b = get_b(raw_vals[k], p_map[k]) * vw
             total += b
             row_p[k] = float(int(round(b)))
@@ -204,6 +270,7 @@ if stranka == "Scoring Matrix":
         
         nastaveni_sloupcu = {
             "Type": None,
+            "Titul": st.column_config.TextColumn("Titul", width=180),
             "Cena": st.column_config.NumberColumn("Cena", format="%.2f"),
             "Změna": st.column_config.NumberColumn("Změna", format="%.1f%%"),
             "Score": st.column_config.NumberColumn("Score", format="%d")
