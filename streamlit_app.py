@@ -385,7 +385,7 @@ elif stranka == "Vnitřní hodnota (IV)":
 
 else:
     # --- LEGENDA PRO KALENDÁŘ, RSI A DAŇOVOU LOGIKU ---
-with st.expander("ℹ️ Legenda k RSI, doporučením a výpočtu ČISTÉ dividendy", expanded=False):
+        with st.expander("ℹ️ Legenda k RSI, doporučením a výpočtu ČISTÉ dividendy", expanded=False):
         c1, c2, c3 = st.columns(3)
         with c1:
             st.markdown("### 📈 Konsenzus z Wall Street\n• Agregované střednědobé doporučení investičních bank (Goldman Sachs atd.).\n• **Strong Buy / Buy:** Očekává se silný růst.\n• **Hold:** Neutrální výhled.\n• **Sell:** Nadhodnocený titul.")
