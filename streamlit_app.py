@@ -358,6 +358,37 @@ if stranka == "Scoring Matrix":
                     column_config=nastaveni_sloupcu)
 
 elif stranka == "Vnitřní hodnota (IV)":
+    # --- ŠPIČKOVÁ METODICKÁ LEGENDA PILÍŘŮ PRO VNITŘNÍ HODNOTU ---
+    with st.expander("ℹ️ Metodická příručka: 3 Pilíře Vnitřní Hodnoty (IV)", expanded=True):
+        st.markdown(
+            "Tato sekce kombinuje **7 klasických a moderních oceňovacích modelů** rozdělených do tří základních investičních logik (Pilířů). "
+            "Výsledná férová cena kalkuluje konzervativní **maximum uvnitř každého pilíře** a následně provádí **vážený průměr** podle tebou zvolených vah v sidebaru."
+        )
+        st.divider()
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown("### 📈 Pilíř 1: Ziskové modely")
+            st.markdown(
+                "Zaměřuje se na čistou ziskovost firmy na akcii (EPS). Exceluje u stabilních společností s předvídatelným byznysem.\n\n"
+                "• **Grahamova formule:** Upravený vzorec otce hodnotového investování Benjamina Grahama. Vypočítává hodnotu na základě současného zisku na akcii, očekávaného růstu a aktuálního výnosu bezrizikových dluhopisů.\n"
+                "• **P/E Multiplier Model:** Přímé vynásobení EPS tebou zvoleným cílovým P/E v sidebaru. Ukazuje hodnotu akcie při návratu trhu do historického normálu.\n"
+                "• **RIM (Residual Income Model):** Oceňuje firmu na základě účetní hodnoty navýšené o budoucí nadbytečné zisky, které překonávají požadovanou minimální výnosnost (Re)."
+            )
+        with c2:
+            st.markdown("### 💸 Pilíř 2: Cashflow modely")
+            st.markdown(
+                "Nejvíce oceňovaný přístup na Wall Street. Ignoruje účetní metriky a dívá se výhradně na reálné peníze, které firmě zbydou.\n\n"
+                "• **DCF / FCF Model:** Vychází z Free Cash Flow (hotovosti po odečtení kapitálových nákladů). Diskontuje budoucí generovaný kapitál zpět do současnosti pomocí růstu (g) a požadované výnosnosti (Re).\n"
+                "• **DDM (Dividend Discount Model):** Gordonův model růstu. Oceňuje akcii výhradně na základě diskontovaného toku budoucích dividend. Použitelné hlavně pro zralé dividendové aristokraty (tabák, utility, banky)."
+            )
+        with c3:
+            st.markdown("### 🧱 Pilíř 3: Majetkově-Tržní")
+            st.markdown(
+                "Pojistný pilíř určený pro technologické startupy (které zatím nemají čistý zisk) nebo firmy s obrovským fyzickým či kapitálovým zázemím.\n\n"
+                "• **P/S Multiplier Model:** Vynásobí tržby na akcii cílovým P/S ze sidebaru. Klíčová metoda pro rychlorostoucí SaaS a tech tituly v rané fázi.\n"
+                "• **NAV Model (Net Asset Value):** Čistá účetní hodnota na akcii (Book Value). Představuje teoretickou likvidační hodnotu – tj. kolik peněz by zbylo akcionářům, kdyby firma dnes rozprodala majetek a splatila dluhy."
+            )
+
     show_details = st.sidebar.toggle("🔓 Zobrazit detailní metody", value=False)
     with st.sidebar.expander("⚖️ Váhy pilířů", expanded=False):
         w1 = st.slider("Váha P1 (Ziskové)", 0, 100, 33)
@@ -394,7 +425,11 @@ elif stranka == "Vnitřní hodnota (IV)":
         fair_price = weighted_sum / active_weights if active_weights > 0 else 0
         upside = ((fair_price / price) - 1) * 100 if price > 0 else 0
 
-        row = {"Titul": item["name"], "Cena": price, "P1: Zisk": int(val_p1), "P2: CF": int(val_p2), "P3: Tržby": int(val_p3), "Férová cena": int(fair_price), "Potenciál_num": upside, "Potenciál %": f"{upside:.1f}%"}
+        row = {
+            "Titul": item["name"], "Cena": price, 
+            "P1: Zisk": int(val_p1), "P2: CF": int(val_p2), "P3: Tržby": int(val_p3), 
+            "Férová cena": int(fair_price), "Potenciál %": float(upside)
+        }
         if show_details: row.update({"› Graham": int(v_graham), "› P/E": int(v_pe), "› RIM": int(v_rim), "› FCF": int(v_fcf), "› DDM": int(v_ddm), "› P/S": int(v_ps), "› NAV": int(v_nav)})
         iv_results.append(row)
 
@@ -402,16 +437,19 @@ elif stranka == "Vnitřní hodnota (IV)":
     if not df_iv.empty:
         def apply_all_styles(row):
             styles = [''] * len(row)
-            up = row["Potenciál_num"]
+            up = row["Potenciál %"]
             bg = 'background-color: #d4edda' if up > 0 else ('background-color: #f8d7da' if up < 0 else '')
             tc = 'background-color: #e3f2fd; color: #0d47a1; font-weight: bold'
             for i, col in enumerate(row.index):
                 if col in ["Titul", "Potenciál %"]: styles[i] = bg
                 if col == "Cena": styles[i] = tc
             return styles
+            
         st.dataframe(df_iv.style.apply(apply_all_styles, axis=1).format({"Cena": "{:.2f}"}), 
                     use_container_width=True, hide_index=True, height=850,
-                    column_config={"Potenciál_num": None})
+                    column_config={
+                        "Potenciál %": st.column_config.NumberColumn("Potenciál %", format="%.1f%%")
+                    })
 
 else:
     # --- DETAILNÍ ROZŠÍŘENÁ LEGENDA PRO KALENDÁŘ & RSI ---
