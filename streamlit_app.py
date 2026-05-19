@@ -56,7 +56,6 @@ def nacti_seznam(odkaz):
         return df
     except: return pd.DataFrame()
 
-# Těžká historická data kešujeme na 24 hodin (86400 sekund), abychom nehltili Yahoo
 @st.cache_data(ttl=86400)
 def fetch_historical_averages(ticker_symbol, current_gm, current_nm, current_roe):
     try:
@@ -89,7 +88,6 @@ def fetch_historical_averages(ticker_symbol, current_gm, current_nm, current_roe
     except:
         return current_gm, current_nm, current_roe
 
-# Tržní data kešujeme na 1 hodinu
 @st.cache_data(ttl=3600)
 def fetch_all_data(df_input):
     res = []
@@ -149,28 +147,70 @@ if stranka == "Scoring Matrix":
         h_pe, b_pe = [20, 35, 50, 80, 999], [15, 25, 15, 5, -5]
         h_ps, b_ps = [3, 6, 12, 20, 999], [10, 15, 20, 5, -10]
 
+    # --- KOMPLETNÍ ENCYKLOPEDICKÁ LEGENDA UKAZATELŮ ---
     napovedy = {
-        "P/E": "Poměr ceny a zisku (Trailing 12M).",
-        "Forward P/E": "Očekávané P/E pro příštích 12 měsíců.\n• Zelená = zisk poroste\n• Červená = riziko poklesu zisku",
-        "P/S": "Poměr ceny a tržeb.",
-        "P/B": "Cena / Účetní hodnota.",
-        "P/FCF": "Cena / Volné cashflow.",
-        "H-Marže": "Aktuální hrubá marže.",
-        "H-Marže 3Y": "3letý průměr hrubé marže.",
-        "Č-Marže": "Aktuální čistá marže.",
-        "Č-Marže 3Y": "3letý průměr čisté marže.",
-        "ROE": "Aktuální návratnost kapitálu.",
-        "ROE 3Y": "3letý průměr ROE.",
-        "Tržby y/y": "Meziroční růst tržeb.",
-        "Zisk y/y": "Meziroční růst zisku.",
-        "Dluh D/E": "Dluh k vlastnímu kapitálu.",
-        "Div. výnos": "Roční dividendový výnos.",
-        "Potenciál": "Cílová cena analytiků vs současná."
+        "P/E": "**Price-to-Earnings (Trailing 12M)**\n\n"
+               "• **Optimální (pod 15):** Podhodnocená nebo stabilní firma.\n"
+               "• **Kritické (nad 40):** Extrémně drahá akcie.\n"
+               "🚨 **Vztah k Forward P/E (Automatická logika):**\n"
+               "Pokud Forward P/E stoupne oproti Trailing o >5 % (zisk klesá), základní body se **sráží na polovinu a uděluje se penalizace -10 bodů** (ochrana před hodnotovou pastí).\n"
+               "Pokud Forward P/E klesne o >5 % (zisk roste), body se **navyšují o 25 %**.",
+               
+        "P/S": "**Price-to-Sales (Cena / Tržby)**\n\n"
+               "• **Optimální (pod 2.0):** Levné z pohledu generovaných tržeb. Skvělé pro mladé, prozatím neziskové firmy.\n"
+               "• **Kritické (nad 10.0):** Extrémně vysoké ocenění, firma musí masivně růst, aby cenu obhájila.",
+               
+        "P/B": "**Price-to-Book (Cena / Účetní hodnota)**\n\n"
+               "• **Optimální (pod 1.5):** Akcie se prodává blízko hodnoty svého čistého majetku.\n"
+               "• **Kritické (nad 6.0):** Vysoká prémie za nehmotný majetek nebo silný brand.",
+               
+        "P/FCF": "**Price-to-Free Cash Flow (Cena / Skutečné peníze)**\n\n"
+               "• **Optimální (pod 15):** Firma generuje hromady čisté hotovosti vzhledem ke své ceně. Nejdůležitější valuační metrika.\n"
+               "• **Kritické (nad 45):** Hotovostní toky neodpovídají valuaci na burze.",
+               
+        "H-Marže": "**Hrubá marže (Gross Margin)**\n\n"
+               "• **Optimální (nad 50 %):** Silná konkurenční výhoda (moat), vysoká ziskovost výroby/služeb.\n"
+               "• **Varovné (pod 20 %):** Komoditní byznys s nízkou cenovou silou.",
+               
+        "H-Marže 3Y": "**3letý průměr hrubé marže**\n\n"
+               "• Ověřuje stabilitu byznysu. Pokud je 3Y průměr výrazně vyšší než aktuální marže, firma ztrácí svou maržovou sílu.",
+               
+        "Č-Marže": "**Čistá marže (Net Margin)**\n\n"
+               "• **Optimální (nad 20 %):** Vysoce efektivní byznys, kterému po zaplacení všech nákladů a daní zbývá hodně peněz.\n"
+               "• **Varovné (pod 5 %):** Jakýkoliv ekonomický otřes posune firmu do čisté ztráty.",
+               
+        "Č-Marže 3Y": "**3letý průměr čisté marže**\n\n"
+               "• Filtruje jednorázové účetní triky. Stabilní čistá marže v čase je znakem zdravého managementu.",
+               
+        "ROE": "**Return on Equity (Návratnost vlastního kapitálu)**\n\n"
+               "• **Optimální (nad 20 %):** Management dokáže skvěle zhodnocovat peníze akcionářů.\n"
+               "• **Varovné (pod 10 %):** Efektivnější by bylo peníze nechat na termínovaném vkladu.",
+               
+        "ROE 3Y": "**3letý průměr ROE**\n\n"
+               "• Ukazuje, zda je vysoká ziskovost kapitálu udržitelná dlouhodobě, nebo šlo jen o jednoletý výkyv.",
+               
+        "Tržby y/y": "**Meziroční růst tržeb (Revenue Growth)**\n\n"
+               "• **Optimální (nad 15 %):** Růstová firma získávající tržní podíl.\n"
+               "• **Kritické (Záporné hodnoty):** Umírající byznys, ztráta zájmu zákazníků.",
+               
+        "Zisk y/y": "**Meziroční růst zisku na akcii (EPS Growth)**\n\n"
+               "• **Optimální (nad 20 %):** Zisk roste rychleji než tržby (provozní páka funguje skvěle).",
+               
+        "Dluh D/E": "**Debt-to-Equity (Celkový dluh / Vlastní kapitál)**\n\n"
+               "• **Optimální (pod 50 %):** Bezpečné, nízké zadlužení.\n"
+               "• **Kritické (nad 150 %):** Vysoké riziko při růstu úrokových sazeb. Firma je předlužená.",
+               
+        "Div. výnos": "**Dividendový výnos (Dividend Yield)**\n\n"
+               "• **Optimální (2 % až 5 %):** Zdravá dividenda krytá zisky.\n"
+               "• **Varovné (nad 8 %):** Často signalizuje trhem očekávané snížení dividendy (Dividend Trap).",
+               
+        "Potenciál": "**Analytický potenciál (Target Price vs Aktuální cena)**\n\n"
+               "• Výpočet průměrného cíle analytiků z Wall Street na 12 měsíců dopředu."
     }
 
     def vytvor_p(nazev, zk, def_h, def_b):
         with st.sidebar.expander(f"📊 {nazev}", expanded=False):
-            st.caption(napovedy.get(nazev, ""))
+            st.markdown(napovedy.get(nazev, ""))
             st.divider()
             d = []
             for i in range(5):
@@ -206,7 +246,6 @@ if stranka == "Scoring Matrix":
     w_growth = st.sidebar.slider("Váha: Růst", 0.5, 3.0, 1.0)
     w_risk = st.sidebar.slider("Váha: Riziko", 0.5, 3.0, 1.0)
 
-    # Přidán Forward P/E do zobrazení sloupců
     mapping_keys = ["P/E", "Forward P/E", "P/S", "P/B", "P/FCF", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Potenciál"]
     pct_cols = ["Změna", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Potenciál"]
     m_rows = []
@@ -239,9 +278,9 @@ if stranka == "Scoring Matrix":
         
         if pe_tr > 0 and pe_fwd > 0:
             pomer = pe_fwd / pe_tr
-            if pomer > 1.05:     # Forward P/E roste o více než 5% -> Pád zisků (Value Trap) -> Penalizace
+            if pomer > 1.05:     
                 adjusted_pe_points = (base_pe_points * 0.5) - 10
-            elif pomer < 0.95:   # Forward P/E klesá o více než 5% -> Růst zisků -> Bonus
+            elif pomer < 0.95:   
                 adjusted_pe_points = base_pe_points * 1.25
 
         total = 0
@@ -264,7 +303,7 @@ if stranka == "Scoring Matrix":
                 row_p[k] = float(int(round(b)))
                 total += b
             elif k == "Forward P/E":
-                row_p[k] = 0.0 # Samostatné body nemá, ovlivňuje hlavní P/E
+                row_p[k] = 0.0 
             else:
                 b = get_b(raw_vals[k], p_map[k]) * vw
                 total += b
@@ -287,13 +326,12 @@ if stranka == "Scoring Matrix":
                 if col in ["Cena", "Změna"]: 
                     s[i] = f"color: {'#1b5e20' if r['Změna']>0 else '#b71c1c'}; font-weight: bold"
                 
-                # Barevný alarm pro vztah P/E vs Forward P/E
                 if col == "Forward P/E":
                     pe = r.get("P/E", 0)
                     fwd = r.get("Forward P/E", 0)
                     if pe > 0 and fwd > 0:
-                        if fwd / pe > 1.05: s[i] = 'background-color: #ffebee; color: #b71c1c; font-weight: bold' # Červená (Zisk klesá)
-                        elif fwd / pe < 0.95: s[i] = 'background-color: #e8f5e9; color: #1b5e20; font-weight: bold' # Zelená (Zisk roste)
+                        if fwd / pe > 1.05: s[i] = 'background-color: #ffebee; color: #b71c1c; font-weight: bold' 
+                        elif fwd / pe < 0.95: s[i] = 'background-color: #e8f5e9; color: #1b5e20; font-weight: bold' 
 
                 val = r.get(col, 0)
                 if col == "P/E" and isinstance(val, (int, float)) and val > 25: s[i] = 'background-color: #ffebee'
@@ -376,14 +414,25 @@ elif stranka == "Vnitřní hodnota (IV)":
                     column_config={"Potenciál_num": None})
 
 else:
-    with st.expander("ℹ️ Legenda k RSI a Doporučení analytiků", expanded=False):
+    # --- DETAILNÍ ROZŠÍŘENÁ LEGENDA PRO KALENDÁŘ & RSI ---
+    with st.expander("ℹ️ Legenda k RSI a Doporučení analytiků", expanded=True):
         c1, c2 = st.columns(2)
         with c1:
-            st.markdown("### 📈 Doporučení analytiků")
-            st.caption("**Zdroj:** Konsenzus bank z Wall Street (Yahoo Finance), horizont 6-12 měsíců.")
+            st.markdown("### 📈 Konsenzus z Wall Street")
+            st.markdown(
+                "Zobrazuje agregované střednědobé doporučení investičních bank (např. Goldman Sachs, Morgan Stanley):\n"
+                "• **Strong Buy / Buy (Zelená):** Analytici očekávají silný růst a doporučují okamžitý nákup.\n"
+                "• **Hold:** Neutrální výhled, doporučeno pozici držet, ne navyšovat.\n"
+                "• **Sell (Červená):** Očekává se zhoršení situace nebo nadhodnocení akcie."
+            )
         with c2:
-            st.markdown("### 📊 Indikátor RSI (Momentum)")
-            st.caption("**Zdroj:** Matematický výpočet za posledních 14 dní.")
+            st.markdown("### 📊 Technický indikátor RSI (Relative Strength Index)")
+            st.markdown(
+                "RSI měří rychlost a změnu cenových pohybů za posledních 14 dní (škála 0 až 100). Signalizuje hybnost trhu (momentum):\n"
+                "• **RSI pod 35 (🟢 Výrazně zelená - Přeprodáno):** Akcie zažila silný výprodej a podle technické analýzy je podhodnocená. Často signalizuje blížící se otočení trendu nahoru.\n"
+                "• **RSI 35 až 65 (Bílá - Neutrální):** Akcie se nachází ve zdravém obchodním pásmu bez extrémních výkyvů.\n"
+                "• **RSI nad 65 (🔴 Výrazně červená - Překoupeno):** Akcie rostla příliš rychle, trh propadl euforii a hrozí krátkodobá korekce nebo vybírání zisků."
+            )
 
     c_rows, today = [], date.today()
     for item in filtered_data:
