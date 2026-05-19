@@ -147,65 +147,23 @@ if stranka == "Scoring Matrix":
         h_pe, b_pe = [20, 35, 50, 80, 999], [15, 25, 15, 5, -5]
         h_ps, b_ps = [3, 6, 12, 20, 999], [10, 15, 20, 5, -10]
 
-    # --- KOMPLETNÍ ENCYKLOPEDICKÁ LEGENDA UKAZATELŮ ---
+    # --- ENCYKLOPEDICKÁ LEGENDA UKAZATELŮ ---
     napovedy = {
-        "P/E": "**Price-to-Earnings (Trailing 12M)**\n\n"
-               "• **Optimální (pod 15):** Podhodnocená nebo stabilní firma.\n"
-               "• **Kritické (nad 40):** Extrémně drahá akcie.\n"
-               "🚨 **Vztah k Forward P/E (Automatická logika):**\n"
-               "Pokud Forward P/E stoupne oproti Trailing o >5 % (zisk klesá), základní body se **sráží na polovinu a uděluje se penalizace -10 bodů** (ochrana před hodnotovou pastí).\n"
-               "Pokud Forward P/E klesne o >5 % (zisk roste), body se **navyšují o 25 %**.",
-               
-        "P/S": "**Price-to-Sales (Cena / Tržby)**\n\n"
-               "• **Optimální (pod 2.0):** Levné z pohledu generovaných tržeb. Skvělé pro mladé, prozatím neziskové firmy.\n"
-               "• **Kritické (nad 10.0):** Extrémně vysoké ocenění, firma musí masivně růst, aby cenu obhájila.",
-               
-        "P/B": "**Price-to-Book (Cena / Účetní hodnota)**\n\n"
-               "• **Optimální (pod 1.5):** Akcie se prodává blízko hodnoty svého čistého majetku.\n"
-               "• **Kritické (nad 6.0):** Vysoká prémie za nehmotný majetek nebo silný brand.",
-               
-        "P/FCF": "**Price-to-Free Cash Flow (Cena / Skutečné peníze)**\n\n"
-               "• **Optimální (pod 15):** Firma generuje hromady čisté hotovosti vzhledem ke své ceně. Nejdůležitější valuační metrika.\n"
-               "• **Kritické (nad 45):** Hotovostní toky neodpovídají valuaci na burze.",
-               
-        "H-Marže": "**Hrubá marže (Gross Margin)**\n\n"
-               "• **Optimální (nad 50 %):** Silná konkurenční výhoda (moat), vysoká ziskovost výroby/služeb.\n"
-               "• **Varovné (pod 20 %):** Komoditní byznys s nízkou cenovou silou.",
-               
-        "H-Marže 3Y": "**3letý průměr hrubé marže**\n\n"
-               "• Ověřuje stabilitu byznysu. Pokud je 3Y průměr výrazně vyšší než aktuální marže, firma ztrácí svou maržovou sílu.",
-               
-        "Č-Marže": "**Čistá marže (Net Margin)**\n\n"
-               "• **Optimální (nad 20 %):** Vysoce efektivní byznys, kterému po zaplacení všech nákladů a daní zbývá hodně peněz.\n"
-               "• **Varovné (pod 5 %):** Jakýkoliv ekonomický otřes posune firmu do čisté ztráty.",
-               
-        "Č-Marže 3Y": "**3letý průměr čisté marže**\n\n"
-               "• Filtruje jednorázové účetní triky. Stabilní čistá marže v čase je znakem zdravého managementu.",
-               
-        "ROE": "**Return on Equity (Návratnost vlastního kapitálu)**\n\n"
-               "• **Optimální (nad 20 %):** Management dokáže skvěle zhodnocovat peníze akcionářů.\n"
-               "• **Varovné (pod 10 %):** Efektivnější by bylo peníze nechat na termínovaném vkladu.",
-               
-        "ROE 3Y": "**3letý průměr ROE**\n\n"
-               "• Ukazuje, zda je vysoká ziskovost kapitálu udržitelná dlouhodobě, nebo šlo jen o jednoletý výkyv.",
-               
-        "Tržby y/y": "**Meziroční růst tržeb (Revenue Growth)**\n\n"
-               "• **Optimální (nad 15 %):** Růstová firma získávající tržní podíl.\n"
-               "• **Kritické (Záporné hodnoty):** Umírající byznys, ztráta zájmu zákazníků.",
-               
-        "Zisk y/y": "**Meziroční růst zisku na akcii (EPS Growth)**\n\n"
-               "• **Optimální (nad 20 %):** Zisk roste rychleji než tržby (provozní páka funguje skvěle).",
-               
-        "Dluh D/E": "**Debt-to-Equity (Celkový dluh / Vlastní kapitál)**\n\n"
-               "• **Optimální (pod 50 %):** Bezpečné, nízké zadlužení.\n"
-               "• **Kritické (nad 150 %):** Vysoké riziko při růstu úrokových sazeb. Firma je předlužená.",
-               
-        "Div. výnos": "**Dividendový výnos (Dividend Yield)**\n\n"
-               "• **Optimální (2 % až 5 %):** Zdravá dividenda krytá zisky.\n"
-               "• **Varovné (nad 8 %):** Často signalizuje trhem očekávané snížení dividendy (Dividend Trap).",
-               
-        "Potenciál": "**Analytický potenciál (Target Price vs Aktuální cena)**\n\n"
-               "• Výpočet průměrného cíle analytiků z Wall Street na 12 měsíců dopředu."
+        "P/E": "**Price-to-Earnings (Trailing 12M)**\n\n• **Optimální (pod 15):** Podhodnocená nebo stabilní firma.\n• **Kritické (nad 40):** Extrémně drahá akcie.\n\n🚨 **Vztah k Forward P/E:** Pokud Forward P/E stoupne oproti Trailing o >5 % (zisk klesá), základní body se **sráží na polovinu a uděluje se penalizace -10 bodů**. Pokud klesne o >5 % (zisk roste), body se **navyšují o 25 %**.",
+        "P/S": "**Price-to-Sales (Cena / Tržby)**\n\n• **Optimální (pod 2.0):** Levné z pohledu generovaných tržeb.\n• **Kritické (nad 10.0):** Extrémně vysoké ocenění, firma musí masivně růst.",
+        "P/B": "**Price-to-Book (Cena / Účetní hodnota)**\n\n• **Optimální (pod 1.5):** Akcie se prodává blízko hodnoty svého čistého majetku.\n• **Kritické (nad 6.0):** Vysoká prémie za nehmotný majetek.",
+        "P/FCF": "**Price-to-Free Cash Flow (Cena / Skutečné peníze)**\n\n• **Optimální (pod 15):** Firma generuje hromady čisté hotovosti. Nejdůležitější valuační metrika.\n• **Kritické (nad 45):** Hotovostní toky neodpovídají valuaci na burze.",
+        "H-Marže": "**Hrubá marže (Gross Margin)**\n\n• **Optimální (nad 50 %):** Silná konkurenční výhoda (moat), vysoká ziskovost výroby/služeb.",
+        "H-Marže 3Y": "**3letý průměr hrubé marže**\n\n• Ověřuje stabilitu byznysu. Pokud je 3Y průměr výrazně vyšší než aktuální marže, firma ztrácí svou maržovou sílu.",
+        "Č-Marže": "**Čistá marže (Net Margin)**\n\n• **Optimální (nad 20 %):** Vysoce efektivní byznys, kterému zbývá hodně peněz po zaplacení všech nákladů.",
+        "Č-Marže 3Y": "**3letý průměr čistá marže**\n\n• Filtruje jednorázové účetní triky. Stabilní čistá marže v čase je znakem zdravého managementu.",
+        "ROE": "**Return on Equity (Návratnost vlastního kapitálu)**\n\n• **Optimální (nad 20 %):** Management dokáže skvěle zhodnocovat peníze akcionářů.",
+        "ROE 3Y": "**3letý průměr ROE**\n\n• Ukazuje, zda je vysoká ziskovost kapitálu udržitelná dlouhodobě.",
+        "Tržby y/y": "**Meziroční růst tržeb (Revenue Growth)**\n\n• **Optimální (nad 15 %):** Růstová firma získávající tržní podíl.",
+        "Zisk y/y": "**Meziroční růst zisku na akcii (EPS Growth)**\n\n• **Optimální (nad 20 %):** Zisk roste rychleji než tržby (provozní páka funguje skvěle).",
+        "Dluh D/E": "**Debt-to-Equity (Celkový dluh / Vlastní kapitál)**\n\n• **Optimální (pod 50 %):** Bezpečné, nízké zadlužení.\n• **Kritické (nad 150 %):** Vysoké riziko při růstu úrokových sazeb.",
+        "Div. výnos": "**Dividendový výnos (Dividend Yield)**\n\n• **Optimální (2 % až 5 %):** Zdravá dividenda krytá zisky.\n• **Varovné (nad 8 %):** Často signalizuje trhem očekávané snížení dividendy (Dividend Trap).",
+        "Potenciál": "**Analytický potenciál (Target Price vs Aktuální cena)**\n\n• Výpočet průměrného cíle analytiků z Wall Street na 12 měsíců dopředu."
     }
 
     def vytvor_p(nazev, zk, def_h, def_b):
@@ -272,7 +230,6 @@ if stranka == "Scoring Matrix":
             "Div. výnos": d_yield, "Potenciál": ((sg("targetMeanPrice")/sg("currentPrice", 1.0))-1)*100 if sg("targetMeanPrice") else 0
         }
 
-        # --- DYNAMICKÝ VÝPOČET A PENALIZACE P/E NA POZADÍ ---
         base_pe_points = get_b(raw_vals["P/E"], p_pe)
         adjusted_pe_points = base_pe_points
         
@@ -345,12 +302,9 @@ if stranka == "Scoring Matrix":
             "Změna": st.column_config.NumberColumn("Změna", format="%.1f%%"),
             "Score": st.column_config.NumberColumn("Score", format="%d")
         }
-        
         for k in mapping_keys:
-            if k in pct_cols:
-                nastaveni_sloupcu[k] = st.column_config.NumberColumn(k, format="%.1f%%")
-            else:
-                nastaveni_sloupcu[k] = st.column_config.NumberColumn(k, format="%.1f")
+            if k in pct_cols: nastaveni_sloupcu[k] = st.column_config.NumberColumn(k, format="%.1f%%")
+            else: nastaveni_sloupcu[k] = st.column_config.NumberColumn(k, format="%.1f")
 
         st.dataframe(df.style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn", vmin=0, vmax=150),
                     use_container_width=True, hide_index=True, height=750,
@@ -358,36 +312,16 @@ if stranka == "Scoring Matrix":
                     column_config=nastaveni_sloupcu)
 
 elif stranka == "Vnitřní hodnota (IV)":
-    # --- ŠPIČKOVÁ METODICKÁ LEGENDA PILÍŘŮ PRO VNITŘNÍ HODNOTU ---
     with st.expander("ℹ️ Metodická příručka: 3 Pilíře Vnitřní Hodnoty (IV)", expanded=True):
-        st.markdown(
-            "Tato sekce kombinuje **7 klasických a moderních oceňovacích modelů** rozdělených do tří základních investičních logik (Pilířů). "
-            "Výsledná férová cena kalkuluje konzervativní **maximum uvnitř každého pilíře** a následně provádí **vážený průměr** podle tebou zvolených vah v sidebaru."
-        )
+        st.markdown("Tato sekce kombinuje **7 klasických a moderních oceňovacích modelů** rozdělených do tří základních investičních logik (Pilířů). Výsledná férová cena kalkuluje konzervativní **maximum uvnitř každého pilíře** a následně provádí **vážený průměr** podle tebou zvolených vah v sidebaru.")
         st.divider()
         c1, c2, c3 = st.columns(3)
         with c1:
-            st.markdown("### 📈 Pilíř 1: Ziskové modely")
-            st.markdown(
-                "Zaměřuje se na čistou ziskovost firmy na akcii (EPS). Exceluje u stabilních společností s předvídatelným byznysem.\n\n"
-                "• **Grahamova formule:** Upravený vzorec otce hodnotového investování Benjamina Grahama. Vypočítává hodnotu na základě současného zisku na akcii, očekávaného růstu a aktuálního výnosu bezrizikových dluhopisů.\n"
-                "• **P/E Multiplier Model:** Přímé vynásobení EPS tebou zvoleným cílovým P/E v sidebaru. Ukazuje hodnotu akcie při návratu trhu do historického normálu.\n"
-                "• **RIM (Residual Income Model):** Oceňuje firmu na základě účetní hodnoty navýšené o budoucí nadbytečné zisky, které překonávají požadovanou minimální výnosnost (Re)."
-            )
+            st.markdown("### 📈 Pilíř 1: Ziskové modely\n• **Grahamova formule:** Hodnota na základě současného EPS, očekávaného růstu a výnosu dluhopisů.\n• **P/E Multiplier Model:** Vynásobení EPS cílovým P/E ze sidebaru.\n• **RIM (Residual Income Model):** Účetní hodnota navýšená o budoucí nadbytečné zisky nad požadovanou výnosností (Re).")
         with c2:
-            st.markdown("### 💸 Pilíř 2: Cashflow modely")
-            st.markdown(
-                "Nejvíce oceňovaný přístup na Wall Street. Ignoruje účetní metriky a dívá se výhradně na reálné peníze, které firmě zbydou.\n\n"
-                "• **DCF / FCF Model:** Vychází z Free Cash Flow (hotovosti po odečtení kapitálových nákladů). Diskontuje budoucí generovaný kapitál zpět do současnosti pomocí růstu (g) a požadované výnosnosti (Re).\n"
-                "• **DDM (Dividend Discount Model):** Gordonův model růstu. Oceňuje akcii výhradně na základě diskontovaného toku budoucích dividend. Použitelné hlavně pro zralé dividendové aristokraty (tabák, utility, banky)."
-            )
+            st.markdown("### 💸 Pilíř 2: Cashflow modely\n• **DCF / FCF Model:** Diskontuje budoucí generované Free Cash Flow (reálnou hotovost) zpět do současnosti.\n• **DDM (Dividend Discount Model):** Gordonův model. Oceňuje akcii výhradně na základě budoucích diskontovaných dividend.")
         with c3:
-            st.markdown("### 🧱 Pilíř 3: Majetkově-Tržní")
-            st.markdown(
-                "Pojistný pilíř určený pro technologické startupy (které zatím nemají čistý zisk) nebo firmy s obrovským fyzickým či kapitálovým zázemím.\n\n"
-                "• **P/S Multiplier Model:** Vynásobí tržby na akcii cílovým P/S ze sidebaru. Klíčová metoda pro rychlorostoucí SaaS a tech tituly v rané fázi.\n"
-                "• **NAV Model (Net Asset Value):** Čistá účetní hodnota na akcii (Book Value). Představuje teoretickou likvidační hodnotu – tj. kolik peněz by zbylo akcionářům, kdyby firma dnes rozprodala majetek a splatila dluhy."
-            )
+            st.markdown("### 🧱 Pilíř 3: Majetkově-Tržní\n• **P/S Multiplier Model:** Vynásobí tržby na akcii cílovým P/S ze sidebaru. Klíčové pro růstové tech/SaaS firmy.\n• **NAV Model (Net Asset Value):** Čistá účetní hodnota (Book Value). Likvidační hodnota firmy.")
 
     show_details = st.sidebar.toggle("🔓 Zobrazit detailní metody", value=False)
     with st.sidebar.expander("⚖️ Váhy pilířů", expanded=False):
@@ -447,39 +381,52 @@ elif stranka == "Vnitřní hodnota (IV)":
             
         st.dataframe(df_iv.style.apply(apply_all_styles, axis=1).format({"Cena": "{:.2f}"}), 
                     use_container_width=True, hide_index=True, height=850,
-                    column_config={
-                        "Potenciál %": st.column_config.NumberColumn("Potenciál %", format="%.1f%%")
-                    })
+                    column_config={"Potenciál %": st.column_config.NumberColumn("Potenciál %", format="%.1f%%")})
 
 else:
-    # --- DETAILNÍ ROZŠÍŘENÁ LEGENDA PRO KALENDÁŘ & RSI ---
-    with st.expander("ℹ️ Legenda k RSI a Doporučení analytiků", expanded=True):
-        c1, c2 = st.columns(2)
+    # --- LEGENDA PRO KALENDÁŘ, RSI A DAŇOVOU LOGIKU ---
+    with st.expander("ℹ️ Legenda k RSI, doporučením a výpočtu ČISTÉ dividendy", expanded=True):
+        c1, c2, c3 = st.columns(3)
         with c1:
-            st.markdown("### 📈 Konsenzus z Wall Street")
-            st.markdown(
-                "Zobrazuje agregované střednědobé doporučení investičních bank (např. Goldman Sachs, Morgan Stanley):\n"
-                "• **Strong Buy / Buy (Zelená):** Analytici očekávají silný růst a doporučují okamžitý nákup.\n"
-                "• **Hold:** Neutrální výhled, doporučeno pozici držet, ne navyšovat.\n"
-                "• **Sell (Červená):** Očekává se zhoršení situace nebo nadhodnocení akcie."
-            )
+            st.markdown("### 📈 Konsenzus z Wall Street\n• Agregované střednědobé doporučení investičních bank (Goldman Sachs atd.).\n• **Strong Buy / Buy:** Očekává se silný růst.\n• **Hold:** Neutrální výhled.\n• **Sell:** Nadhodnocený titul.")
         with c2:
-            st.markdown("### 📊 Technický indikátor RSI (Relative Strength Index)")
-            st.markdown(
-                "RSI měří rychlost a změnu cenových pohybů za posledních 14 dní (škála 0 až 100). Signalizuje hybnost trhu (momentum):\n"
-                "• **RSI pod 35 (🟢 Výrazně zelená - Přeprodáno):** Akcie zažila silný výprodej a podle technické analýzy je podhodnocená. Často signalizuje blížící se otočení trendu nahoru.\n"
-                "• **RSI 35 až 65 (Bílá - Neutrální):** Akcie se nachází ve zdravém obchodním pásmu bez extrémních výkyvů.\n"
-                "• **RSI nad 65 (🔴 Výrazně červená - Překoupeno):** Akcie rostla příliš rychle, trh propadl euforii a hrozí krátkodobá korekce nebo vybírání zisků."
-            )
+            st.markdown("### 📊 Technický indikátor RSI\n• Měří rychlost pohybů cen za 14 dní (0 až 100).\n• **RSI < 35 (Zelená):** Přeprodáno (silný výprodej, technická příležitost k nákupu).\n• **RSI > 65 (Červená):** Překoupeno (tržní euforie, hrozí krátkodobá korekce).")
+        with c3:
+            st.markdown("### 🧮 Odhad čistého výnosu\n• **UK Tituly (BTI, SHEL):** Automaticky 0% srážková daň.\n• **USA (USD) & ČR (CZK):** Srážková daň 15 %.\n• **Evropa (EUR) & Ostatní:** Konzervativní odhad 25 % (daňový průměr EU).\n\n*Scoring Matrix záměrně využívá hrubý výnos pro hodnocení čistého fundamentu firmy.*")
 
     c_rows, today = [], date.today()
     for item in filtered_data:
-        inf = item["inf"]; days_to = safe_date_diff(item["earn"], today)
+        inf = item["inf"]; ticker = item["t"]
+        days_to = safe_date_diff(item["earn"], today)
         ex_dt = datetime.fromtimestamp(inf.get('exDividendDate')).date() if inf.get('exDividendDate') else None
+        
+        # Sběr dat o dividendách
+        d_yield_gross = safe_float(inf.get('dividendYield'))
+        if d_yield_gross < 0.2 and d_yield_gross > 0: d_yield_gross *= 100 
+        
+        currency = str(inf.get('currency', 'USD')).upper()
+        
+        # --- INTELIGENTNÍ DAŇOVÁ LOGIKA ---
+        if ticker in ["BTI", "SHEL"] or ".LON" in ticker:
+            tax_rate = 0.0  # UK akcie (nebo britská ADR) mají 0 % srážkovou daň u běžných dividend
+        elif currency == "USD":
+            tax_rate = 0.15 # USA akcie (W-8BEN formulář)
+        elif currency == "CZK":
+            tax_rate = 0.15 # Český domicil
+        else:
+            tax_rate = 0.25 # Evropa/Ostatní (přibližný průměr)
+            
+        d_yield_net = d_yield_gross * (1 - tax_rate)
+
         c_rows.append({
-            "Titul": item["name"], "Ticker": item["t"], "Earnings": item["earn"] if not pd.isna(item["earn"]) else "-", "Dní do": days_to,
-            "Dividenda": f"{safe_float(inf.get('dividendRate')):.2f} {inf.get('currency', 'USD')}", "Ex-Date": ex_dt.strftime('%d.%m.%Y') if ex_dt else "-", 
-            "Doporučení": inf.get('recommendationKey', '-').replace('_', ' ').title(), "RSI": int(item['rsi']), "_rsi": item["rsi"]
+            "Titul": item["name"], "Ticker": ticker, 
+            "Earnings": item["earn"] if not pd.isna(item["earn"]) else "-", "Dní do": days_to,
+            "Dividenda": f"{safe_float(inf.get('dividendRate')):.2f} {currency}", 
+            "Div. výnos (hrubý)": d_yield_gross,
+            "Čistý výnos (odhad)": d_yield_net,
+            "Ex-Date": ex_dt.strftime('%d.%m.%Y') if ex_dt else "-", 
+            "Doporučení": inf.get('recommendationKey', '-').replace('_', ' ').title(), 
+            "RSI": int(item['rsi']), "_rsi": item["rsi"]
         })
     df_c = pd.DataFrame(c_rows)
     if not df_c.empty:
@@ -488,13 +435,21 @@ else:
             d_idx = r.index.get_loc("Dní do")
             if r["Dní do"] < 0: s[d_idx] = 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold'
             elif r["Dní do"] < 14: s[d_idx] = 'background-color: #fff9c4; color: #f57f17; font-weight: bold'
+            
             rec = str(r["Doporučení"]).lower(); rec_idx = r.index.get_loc("Doporučení")
             if "buy" in rec: s[rec_idx] = 'background-color: #e8f5e9; color: #1b5e20; font-weight: bold'
             elif "sell" in rec: s[rec_idx] = 'background-color: #ffebee; color: #b71c1c'
+            
             rsi_idx = r.index.get_loc("RSI")
             if r["_rsi"] < 35: s[rsi_idx] = 'background-color: #c8e6c9; color: #1b5e20; font-weight: bold'
             elif r["_rsi"] > 65: s[rsi_idx] = 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold'
             return s
+            
         st.dataframe(df_c.style.apply(style_calendar, axis=1), 
                     use_container_width=True, hide_index=True, height=850,
-                    column_config={"_rsi": None})
+                    column_config={
+                        "_rsi": None,
+                        "Div. výnos (hrubý)": st.column_config.NumberColumn("Div. výnos (hrubý)", format="%.2f%%"),
+                        "Čistý výnos (odhad)": st.column_config.NumberColumn("Čistý výnos (odhad)", format="%.2f%%")
+                    },
+                    column_order=["Titul", "Ticker", "Earnings", "Dní do", "Dividenda", "Div. výnos (hrubý)", "Čistý výnos (odhad)", "Ex-Date", "Doporučení", "RSI"])
