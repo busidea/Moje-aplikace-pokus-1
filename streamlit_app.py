@@ -312,7 +312,8 @@ if stranka == "Scoring Matrix":
                     column_config=nastaveni_sloupcu)
 
 elif stranka == "Vnitřní hodnota (IV)":
-    with st.expander("ℹ️ Metodická příručka: 3 Pilíře Vnitřní Hodnoty (IV)", expanded=True):
+    # ZMĚNA ZDE: expanded=False (Legenda Vnitřní hodnoty bude po načtení sbalená)
+    with st.expander("ℹ️ Metodická příručka: 3 Pilíře Vnitřní Hodnoty (IV)", expanded=False):
         st.markdown("Tato sekce kombinuje **7 klasických a moderních oceňovacích modelů** rozdělených do tří základních investičních logik (Pilířů). Výsledná férová cena kalkuluje konzervativní **maximum uvnitř každého pilíře** a následně provádí **vážený průměr** podle tebou zvolených vah v sidebaru.")
         st.divider()
         c1, c2, c3 = st.columns(3)
@@ -321,7 +322,7 @@ elif stranka == "Vnitřní hodnota (IV)":
         with c2:
             st.markdown("### 💸 Pilíř 2: Cashflow modely\n• **DCF / FCF Model:** Diskontuje budoucí generované Free Cash Flow (reálnou hotovost) zpět do současnosti.\n• **DDM (Dividend Discount Model):** Gordonův model. Oceňuje akcii výhradně na základě budoucích diskontovaných dividend.")
         with c3:
-            st.markdown("### 🧱 Pilíř 3: Majetkově-Tržní\n• **P/S Multiplier Model:** Vynásobí tržby na akcii cílovým P/S ze sidebaru. Klíčové pro růstové tech/SaaS firmy.\n• **NAV Model (Net Asset Value):** Čistá účetní hodnota (Book Value). Likvidační hodnota firmy.")
+            st.markdown("### 🧱 Pilíř 3: Majetkově-Tržní\n• **P/S Multiplier Model:** Vynásobí tržby na akcii cílovým P/S ze sidebaru. Klíčové pro růstové tech/SaaS firmy.\n• **NAV Model (Net Asset Value):** Čistá účetní hodnota (Book Value). Likvidační hodnota firma.")
 
     show_details = st.sidebar.toggle("🔓 Zobrazit detailní metody", value=False)
     with st.sidebar.expander("⚖️ Váhy pilířů", expanded=False):
@@ -384,8 +385,8 @@ elif stranka == "Vnitřní hodnota (IV)":
                     column_config={"Potenciál %": st.column_config.NumberColumn("Potenciál %", format="%.1f%%")})
 
 else:
-    # --- LEGENDA PRO KALENDÁŘ, RSI A DAŇOVOU LOGIKU ---
-        with st.expander("ℹ️ Legenda k RSI, doporučením a výpočtu ČISTÉ dividendy", expanded=False):
+    # ZMĚNA ZDE: expanded=False (Legenda Kalendáře bude po načtení sbalená)
+    with st.expander("ℹ️ Legenda k RSI, doporučením a výpočtu ČISTÉ dividendy", expanded=False):
         c1, c2, c3 = st.columns(3)
         with c1:
             st.markdown("### 📈 Konsenzus z Wall Street\n• Agregované střednědobé doporučení investičních bank (Goldman Sachs atd.).\n• **Strong Buy / Buy:** Očekává se silný růst.\n• **Hold:** Neutrální výhled.\n• **Sell:** Nadhodnocený titul.")
@@ -408,7 +409,7 @@ else:
         
         # --- INTELIGENTNÍ DAŇOVÁ LOGIKA ---
         if ticker in ["BTI", "SHEL"] or ".LON" in ticker:
-            tax_rate = 0.0  # UK akcie (nebo britská ADR) mají 0 % srážkovou daň u běžných dividend
+            tax_rate = 0.0  # UK akcie mají 0 % srážkovou daň u běžných dividend
         elif currency == "USD":
             tax_rate = 0.15 # USA akcie (W-8BEN formulář)
         elif currency == "CZK":
