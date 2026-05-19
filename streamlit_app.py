@@ -87,7 +87,7 @@ def fetch_historical_averages(ticker_symbol, current_gm, current_nm, current_roe
             
         return safe_float(gm_3y), safe_float(nm_3y), safe_float(roe_3y)
     except:
-        return current_gm, current_nm, current_roe  # Fallback na aktuální hodnoty při chybě
+        return current_gm, current_nm, current_roe
 
 # Tržní data kešujeme na 1 hodinu
 @st.cache_data(ttl=3600)
@@ -103,12 +103,10 @@ def fetch_all_data(df_input):
                 d = hi['Close'].diff(); g = d.where(d > 0, 0).rolling(14).mean(); l = -d.where(d < 0, 0).rolling(14).mean()
                 rsi = 100 - (100 / (1 + (g.iloc[-1]/l.iloc[-1]))) if l.iloc[-1] != 0 else 50
             
-            # Aktuální roční hodnoty z info (základ pro průměry)
             c_gm = safe_float(inf.get('grossMargins', 0)) * 100
             c_nm = safe_float(inf.get('profitMargins', 0)) * 100
             c_roe = safe_float(inf.get('returnOnEquity', 0)) * 100
             
-            # Načtení 3Y průměrů z denní cache
             gm_3y, nm_3y, roe_3y = fetch_historical_averages(t, c_gm, c_nm, c_roe)
 
             res.append({
@@ -121,7 +119,7 @@ def fetch_all_data(df_input):
         except: continue
     return res
 
-df_raw_list = nacti_seznam(ODKAK_NA_TABULKU) if 'ODKAK_NA_TABULKU' in locals() else nacti_seznam(ODKAZ_NA_TABULKU)
+df_raw_list = nacti_seznam(ODKAZ_NA_TABULKU)
 raw_data = fetch_all_data(df_raw_list)
 
 # --- 4. SIDEBAR ---
@@ -152,12 +150,13 @@ if stranka == "Scoring Matrix":
         h_ps, b_ps = [3, 6, 12, 20, 999], [10, 15, 20, 5, -10]
 
     napovedy = {
-        "P/E": "Poměr ceny a zisku.\n• < 15 optimální\n• > 25 varovné",
+        "P/E": "Poměr ceny a zisku (Trailing 12M).",
+        "Forward P/E": "Očekávané P/E pro příštích 12 měsíců.\n• Zelená = zisk poroste\n• Červená = riziko poklesu zisku",
         "P/S": "Poměr ceny a tržeb.",
         "P/B": "Cena / Účetní hodnota.",
         "P/FCF": "Cena / Volné cashflow.",
         "H-Marže": "Aktuální hrubá marže.",
-        "H-Marže 3Y": "3letý průměr hrubé marže. Ukazuje dlouhodobou stabilitu.",
+        "H-Marže 3Y": "3letý průměr hrubé marže.",
         "Č-Marže": "Aktuální čistá marže.",
         "Č-Marže 3Y": "3letý průměr čisté marže.",
         "ROE": "Aktuální návratnost kapitálu.",
@@ -186,11 +185,10 @@ if stranka == "Scoring Matrix":
     p_pb = vytvor_p("P/B", "pb", [1, 2.5, 4, 8, 999], [10, 7, 3, 0, -5])
     p_pfcf = vytvor_p("P/FCF", "pfcf", [12, 20, 35, 50, 999], [20, 12, 5, 0, -10])
     
-    # Párové sekce: Aktuální a 3Y průměry
     p_gm = vytvor_p("H-Marže", "gm", h_gm, b_gm)
     p_gm_3y = vytvor_p("H-Marže 3Y", "gm3y", h_gm, b_gm)
     
-    p_nm = vytvor_p("Č-Marže", "nm", b_nm, b_nm) if strategie == "Vlastní" else vytvor_p("Č-Marže", "nm", h_nm, b_nm)
+    p_nm = vytvor_p("Č-Marže", "nm", h_nm, b_nm)
     p_nm_3y = vytvor_p("Č-Marže 3Y", "nm3y", h_nm, b_nm)
     
     p_roe = vytvor_p("ROE", "roe", h_roe, b_roe)
@@ -208,7 +206,8 @@ if stranka == "Scoring Matrix":
     w_growth = st.sidebar.slider("Váha: Růst", 0.5, 3.0, 1.0)
     w_risk = st.sidebar.slider("Váha: Riziko", 0.5, 3.0, 1.0)
 
-    mapping_keys = ["P/E", "P/S", "P/B", "P/FCF", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Potenciál"]
+    # Přidán Forward P/E do zobrazení sloupců
+    mapping_keys = ["P/E", "Forward P/E", "P/S", "P/B", "P/FCF", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Potenciál"]
     pct_cols = ["Změna", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Potenciál"]
     m_rows = []
 
@@ -217,12 +216,15 @@ if stranka == "Scoring Matrix":
         def sg(k, mult=1.0):
             v = inf.get(k); return float(v) * mult if v is not None and str(v) != "None" else 0.0
         
+        pe_tr = sg("trailingPE") or sg("forwardPE")
+        pe_fwd = sg("forwardPE") or pe_tr
+
         d_yield = sg("dividendYield")
         if d_yield < 0.2 and d_yield > 0: d_yield *= 100 
 
         raw_vals = {
             "Cena": sg("currentPrice"), "Změna": ((sg("currentPrice")/sg("previousClose", 1.0))-1)*100 if sg("previousClose") else 0,
-            "P/E": sg("trailingPE") or sg("forwardPE"), "P/S": sg("priceToSalesTrailing12Months"), 
+            "P/E": pe_tr, "Forward P/E": pe_fwd, "P/S": sg("priceToSalesTrailing12Months"), 
             "P/B": sg("priceToBook"), "P/FCF": sg("marketCap")/sg("freeCashflow") if sg("freeCashflow") else 0,
             "H-Marže": sg("grossMargins", 100), "H-Marže 3Y": item["gm_3y"],
             "Č-Marže": sg("profitMargins", 100), "Č-Marže 3Y": item["nm_3y"],
@@ -231,8 +233,20 @@ if stranka == "Scoring Matrix":
             "Div. výnos": d_yield, "Potenciál": ((sg("targetMeanPrice")/sg("currentPrice", 1.0))-1)*100 if sg("targetMeanPrice") else 0
         }
 
+        # --- DYNAMICKÝ VÝPOČET A PENALIZACE P/E NA POZADÍ ---
+        base_pe_points = get_b(raw_vals["P/E"], p_pe)
+        adjusted_pe_points = base_pe_points
+        
+        if pe_tr > 0 and pe_fwd > 0:
+            pomer = pe_fwd / pe_tr
+            if pomer > 1.05:     # Forward P/E roste o více než 5% -> Pád zisků (Value Trap) -> Penalizace
+                adjusted_pe_points = (base_pe_points * 0.5) - 10
+            elif pomer < 0.95:   # Forward P/E klesá o více než 5% -> Růst zisků -> Bonus
+                adjusted_pe_points = base_pe_points * 1.25
+
         total = 0
         row_p = {"Titul": f"   └ body ({t})", "Type": "Points"}
+        
         p_map = {
             "P/E": p_pe, "P/S": p_ps, "P/B": p_pb, "P/FCF": p_pfcf,
             "H-Marže": p_gm, "H-Marže 3Y": p_gm_3y, 
@@ -243,10 +257,18 @@ if stranka == "Scoring Matrix":
         w_map = {"v": w_val, "p": w_prof, "g": w_growth, "r": w_risk}
 
         for k in mapping_keys:
-            vw = w_map["v"] if k in ["P/E", "P/S", "P/B", "P/FCF"] else (w_map["p"] if "Marže" in k or "ROE" in k else (w_map["g"] if k in ["Tržby y/y", "Zisk y/y", "Div. výnos", "Potenciál"] else w_map["r"]))
-            b = get_b(raw_vals[k], p_map[k]) * vw
-            total += b
-            row_p[k] = float(int(round(b)))
+            vw = w_map["v"] if k in ["P/E", "Forward P/E", "P/S", "P/B", "P/FCF"] else (w_map["p"] if "Marže" in k or "ROE" in k else (w_map["g"] if k in ["Tržby y/y", "Zisk y/y", "Div. výnos", "Potenciál"] else w_map["r"]))
+            
+            if k == "P/E":
+                b = adjusted_pe_points * vw
+                row_p[k] = float(int(round(b)))
+                total += b
+            elif k == "Forward P/E":
+                row_p[k] = 0.0 # Samostatné body nemá, ovlivňuje hlavní P/E
+            else:
+                b = get_b(raw_vals[k], p_map[k]) * vw
+                total += b
+                row_p[k] = float(int(round(b)))
 
         row_v = {"Titul": name, "Type": "Value", "Změna": raw_vals["Změna"], "Cena": raw_vals["Cena"], "Score": int(total)}
         for k in mapping_keys:
@@ -260,9 +282,19 @@ if stranka == "Scoring Matrix":
         def style_matrix(r):
             s = [''] * len(r)
             if r.get("Type") == "Points": return ['color: #888; font-style: italic; background-color: #f8f9fa'] * len(r)
+            
             for i, col in enumerate(r.index):
                 if col in ["Cena", "Změna"]: 
                     s[i] = f"color: {'#1b5e20' if r['Změna']>0 else '#b71c1c'}; font-weight: bold"
+                
+                # Barevný alarm pro vztah P/E vs Forward P/E
+                if col == "Forward P/E":
+                    pe = r.get("P/E", 0)
+                    fwd = r.get("Forward P/E", 0)
+                    if pe > 0 and fwd > 0:
+                        if fwd / pe > 1.05: s[i] = 'background-color: #ffebee; color: #b71c1c; font-weight: bold' # Červená (Zisk klesá)
+                        elif fwd / pe < 0.95: s[i] = 'background-color: #e8f5e9; color: #1b5e20; font-weight: bold' # Zelená (Zisk roste)
+
                 val = r.get(col, 0)
                 if col == "P/E" and isinstance(val, (int, float)) and val > 25: s[i] = 'background-color: #ffebee'
                 if col == "Dluh D/E" and isinstance(val, (int, float)) and val > 120: s[i] = 'background-color: #ffcdd2'
@@ -349,19 +381,9 @@ else:
         with c1:
             st.markdown("### 📈 Doporučení analytiků")
             st.caption("**Zdroj:** Konsenzus bank z Wall Street (Yahoo Finance), horizont 6-12 měsíců.")
-            st.markdown("""
-            - **Strong Buy / Buy (Zelená):** Silný fundament, analytici očekávají překonání trhu.
-            - **Hold:** Férové ocenění, neutrální výhled.
-            - **Underperform / Sell (Červená):** Očekávané zhoršení výsledků nebo nadhodnocení.
-            """)
         with c2:
             st.markdown("### 📊 Indikátor RSI (Momentum)")
-            st.caption("**Zdroj:** Matematický výpočet za posledních 14 dní (rychlost pohybu ceny).")
-            st.markdown("""
-            - **RSI > 65 (Překoupeno / Červená):** Trh propadl euforii, akcie je krátkodobě drahá, hrozí korekce.
-            - **RSI < 35 (Přeprodáno / Zelená):** Na trhu je panika/výprodej, akcie je v technické 'slevě'.
-            - **35 až 65:** Neutrální zóna.
-            """)
+            st.caption("**Zdroj:** Matematický výpočet za posledních 14 dní.")
 
     c_rows, today = [], date.today()
     for item in filtered_data:
