@@ -306,7 +306,6 @@ if stranka == "Scoring Matrix":
             if k in pct_cols: nastaveni_sloupcu[k] = st.column_config.NumberColumn(k, format="%.1f%%")
             else: nastaveni_sloupcu[k] = st.column_config.NumberColumn(k, format="%.1f")
 
-        # OPRAVENO: width="stretch"
         st.dataframe(df.style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn", vmin=0, vmax=150),
                     hide_index=True, height=750, width="stretch",
                     column_order=["Titul", "Cena", "Změna"] + mapping_keys + ["Score"],
@@ -380,7 +379,6 @@ elif stranka == "Vnitřní hodnota (IV)":
                 if col == "Cena": styles[i] = tc
             return styles
             
-        # OPRAVENO: width="stretch"
         st.dataframe(df_iv.style.apply(apply_all_styles, axis=1).format({"Cena": "{:.2f}"}), 
                     hide_index=True, height=850, width="stretch",
                     column_config={"Potenciál %": st.column_config.NumberColumn("Potenciál %", format="%.1f%%")})
@@ -446,7 +444,6 @@ else:
             elif r["_rsi"] > 65: s[rsi_idx] = 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold'
             return s
             
-        # OPRAVENO: width="stretch"
         st.dataframe(df_c.style.apply(style_calendar, axis=1), 
                     hide_index=True, height=850, width="stretch",
                     column_config={
