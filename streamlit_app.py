@@ -91,9 +91,10 @@ def fetch_historical_averages(ticker_symbol, current_gm, current_nm, current_roe
 @st.cache_data(ttl=3600)
 def fetch_all_data(df_input):
     res = []
+    if df_input.empty: return res
     for row in df_input.to_dict('records'):
         t = str(row.get('Ticker', '')).strip()
-        if not t or t in ["-", "nan", "NAN"]: continue
+        if not t or t in ["-", "nan", "NAN", "TICKER"]: continue
         try:
             tk = yf.Ticker(t); inf = tk.info; hi = tk.history(period="1mo")
             rsi = 50
@@ -117,8 +118,19 @@ def fetch_all_data(df_input):
         except: continue
     return res
 
+# --- BEZPEČNÉ NAČTENÍ S INDIKÁTOREM ---
 df_raw_list = nacti_seznam(ODKAZ_NA_TABULKU)
-raw_data = fetch_all_data(df_raw_list)
+
+if df_raw_list.empty:
+    st.error("❌ Nepodařilo se načíst data z Google tabulky. Zkontroluj odkaz nebo připojení.")
+    st.stop()
+
+with st.spinner("🔄 Načítám živá data z Yahoo Finance... Prosím strpení."):
+    raw_data = fetch_all_data(df_raw_list)
+
+if not raw_data:
+    st.warning("⚠️ Žádná data nebyla z Yahoo Finance stažena. Zkontroluj tickery v tabulce.")
+    st.stop()
 
 # --- 4. SIDEBAR ---
 st.sidebar.markdown("### **📊 Menu**")
@@ -161,7 +173,7 @@ if stranka == "Scoring Matrix":
         "ROE 3Y": "**3letý průměr ROE**\n\n• Ukazuje, zda je vysoká ziskovost kapitálu udržitelná dlouhodobě.",
         "Tržby y/y": "**Meziroční růst tržeb (Revenue Growth)**\n\n• **Optimální (nad 15 %):** Růstová firma získávající tržní podíl.",
         "Zisk y/y": "**Meziroční růst zisku na akcii (EPS Growth)**\n\n• **Optimální (nad 20 %):** Zisk roste rychleji než tržby (provozní páka funguje skvěle).",
-        "Dluh D/E": "**Debt-to-Equity (Celkový dluh / Vlastní kapitál)**\n\n• **Optimální (pod 50 %):** Bezpečné, nízké zadlužení.\n• **Kritické (nad 150 %):** Vysoké riziko při růstu úrokových sazeb.",
+        "Dluh D/E": "**Debt-to-Equity (Celkový dluh / Vlastní kapitál)**\n\n• **Optimální (pod 50 %):** Bezpečné, nízké zadlužení.\n• **Kritické (nad 150 %):** Vysoké risiko při růstu úrokových sazeb.",
         "Div. výnos": "**Dividendový výnos (Dividend Yield)**\n\n• **Optimální (2 % až 5 %):** Zdravá dividenda krytá zisky.\n• **Varovné (nad 8 %):** Často signalizuje trhem očekávané snížení dividendy (Dividend Trap).",
         "Potenciál": "**Analytický potenciál (Target Price vs Aktuální cena)**\n\n• Výpočet průměrného cíle analytiků z Wall Street na 12 měsíců dopředu."
     }
@@ -241,7 +253,7 @@ if stranka == "Scoring Matrix":
                 adjusted_pe_points = base_pe_points * 1.25
 
         total = 0
-        row_p = {"Titul": f"   └ body ({t})", "Type": "Points"}
+        row_p = {"Titul": f"    └ body ({t})", "Type": "Points"}
         
         p_map = {
             "P/E": p_pe, "P/S": p_ps, "P/B": p_pb, "P/FCF": p_pfcf,
@@ -312,7 +324,6 @@ if stranka == "Scoring Matrix":
                     column_config=nastaveni_sloupcu)
 
 elif stranka == "Vnitřní hodnota (IV)":
-    # ZMĚNA ZDE: expanded=False (Legenda Vnitřní hodnoty bude po načtení sbalená)
     with st.expander("ℹ️ Metodická příručka: 3 Pilíře Vnitřní Hodnoty (IV)", expanded=False):
         st.markdown("Tato sekce kombinuje **7 klasických a moderních oceňovacích modelů** rozdělených do tří základních investičních logik (Pilířů). Výsledná férová cena kalkuluje konzervativní **maximum uvnitř každého pilíře** a následně provádí **vážený průměr** podle tebou zvolených vah v sidebaru.")
         st.divider()
@@ -385,7 +396,6 @@ elif stranka == "Vnitřní hodnota (IV)":
                     column_config={"Potenciál %": st.column_config.NumberColumn("Potenciál %", format="%.1f%%")})
 
 else:
-    # ZMĚNA ZDE: expanded=False (Legenda Kalendáře bude po načtení sbalená)
     with st.expander("ℹ️ Legenda k RSI, doporučením a výpočtu ČISTÉ dividendy", expanded=False):
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -393,7 +403,7 @@ else:
         with c2:
             st.markdown("### 📊 Technický indikátor RSI\n• Měří rychlost pohybů cen za 14 dní (0 až 100).\n• **RSI < 35 (Zelená):** Přeprodáno (silný výprodej, technická příležitost k nákupu).\n• **RSI > 65 (Červená):** Překoupeno (tržní euforie, hrozí krátkodobá korekce).")
         with c3:
-            st.markdown("### 🧮 Odhad čistého výnosu\n• **UK Tituly (BTI, SHEL):** Automaticky 0% srážková daň.\n• **USA (USD) & ČR (CZK):** Srážková daň 15 %.\n• **Evropa (EUR) & Ostatní:** Konzervativní odhad 25 % (daňový průměr EU).\n\n*Scoring Matrix záměrně využívá hrubý výnos pro hodnocení čistého fundamentu firmy.*")
+            st.markdown("### 🧮 Odhad čistého výnosu\n• **UK Tituly (BTI, SHEL):** Automaticky 0% srážková daň.\n• **USA (USD) & ČR (CZK):** Srážková daň 15 %.\n• **Evropa (EUR) & Ostatní:** Konzervativní odhad 25 % (daňový průměr EU).\n\n*Scoring Matrix záměrně využívá hrubý výnos pro hodnocení čistého fundamentu firma.*")
 
     c_rows, today = [], date.today()
     for item in filtered_data:
