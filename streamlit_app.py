@@ -306,13 +306,13 @@ if stranka == "Scoring Matrix":
             if k in pct_cols: nastaveni_sloupcu[k] = st.column_config.NumberColumn(k, format="%.1f%%")
             else: nastaveni_sloupcu[k] = st.column_config.NumberColumn(k, format="%.1f")
 
+        # OPRAVENO: width="stretch"
         st.dataframe(df.style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn", vmin=0, vmax=150),
-                    use_container_width=True, hide_index=True, height=750,
+                    hide_index=True, height=750, width="stretch",
                     column_order=["Titul", "Cena", "Změna"] + mapping_keys + ["Score"],
                     column_config=nastaveni_sloupcu)
 
 elif stranka == "Vnitřní hodnota (IV)":
-    # ZMĚNA ZDE: expanded=False (Legenda Vnitřní hodnoty bude po načtení sbalená)
     with st.expander("ℹ️ Metodická příručka: 3 Pilíře Vnitřní Hodnoty (IV)", expanded=False):
         st.markdown("Tato sekce kombinuje **7 klasických a moderních oceňovacích modelů** rozdělených do tří základních investičních logik (Pilířů). Výsledná férová cena kalkuluje konzervativní **maximum uvnitř každého pilíře** a následně provádí **vážený průměr** podle tebou zvolených vah v sidebaru.")
         st.divider()
@@ -322,7 +322,7 @@ elif stranka == "Vnitřní hodnota (IV)":
         with c2:
             st.markdown("### 💸 Pilíř 2: Cashflow modely\n• **DCF / FCF Model:** Diskontuje budoucí generované Free Cash Flow (reálnou hotovost) zpět do současnosti.\n• **DDM (Dividend Discount Model):** Gordonův model. Oceňuje akcii výhradně na základě budoucích diskontovaných dividend.")
         with c3:
-            st.markdown("### 🧱 Pilíř 3: Majetkově-Tržní\n• **P/S Multiplier Model:** Vynásobí tržby na akcii cílovým P/S ze sidebaru. Klíčové pro růstové tech/SaaS firmy.\n• **NAV Model (Net Asset Value):** Čistá účetní hodnota (Book Value). Likvidační hodnota firma.")
+            st.markdown("### 🧱 Pilíř 3: Majetkově-Tržní\n• **P/S Multiplier Model:** Vynásobí tržby na akcii cílovým P/S ze sidebaru. Klíčové pro růstové tech/SaaS firmy.\n• **NAV Model (Net Asset Value):** Čistá účetní hodnota (Book Value). Likvidační hodnota firmy.")
 
     show_details = st.sidebar.toggle("🔓 Zobrazit detailní metody", value=False)
     with st.sidebar.expander("⚖️ Váhy pilířů", expanded=False):
@@ -380,12 +380,12 @@ elif stranka == "Vnitřní hodnota (IV)":
                 if col == "Cena": styles[i] = tc
             return styles
             
+        # OPRAVENO: width="stretch"
         st.dataframe(df_iv.style.apply(apply_all_styles, axis=1).format({"Cena": "{:.2f}"}), 
-                    use_container_width=True, hide_index=True, height=850,
+                    hide_index=True, height=850, width="stretch",
                     column_config={"Potenciál %": st.column_config.NumberColumn("Potenciál %", format="%.1f%%")})
 
 else:
-    # ZMĚNA ZDE: expanded=False (Legenda Kalendáře bude po načtení sbalená)
     with st.expander("ℹ️ Legenda k RSI, doporučením a výpočtu ČISTÉ dividendy", expanded=False):
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -409,13 +409,13 @@ else:
         
         # --- INTELIGENTNÍ DAŇOVÁ LOGIKA ---
         if ticker in ["BTI", "SHEL"] or ".LON" in ticker:
-            tax_rate = 0.0  # UK akcie mají 0 % srážkovou daň u běžných dividend
+            tax_rate = 0.0  
         elif currency == "USD":
-            tax_rate = 0.15 # USA akcie (W-8BEN formulář)
+            tax_rate = 0.15 
         elif currency == "CZK":
-            tax_rate = 0.15 # Český domicil
+            tax_rate = 0.15 
         else:
-            tax_rate = 0.25 # Evropa/Ostatní (přibližný průměr)
+            tax_rate = 0.25 
             
         d_yield_net = d_yield_gross * (1 - tax_rate)
 
@@ -446,8 +446,9 @@ else:
             elif r["_rsi"] > 65: s[rsi_idx] = 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold'
             return s
             
+        # OPRAVENO: width="stretch"
         st.dataframe(df_c.style.apply(style_calendar, axis=1), 
-                    use_container_width=True, hide_index=True, height=850,
+                    hide_index=True, height=850, width="stretch",
                     column_config={
                         "_rsi": None,
                         "Div. výnos (hrubý)": st.column_config.NumberColumn("Div. výnos (hrubý)", format="%.2f%%"),
