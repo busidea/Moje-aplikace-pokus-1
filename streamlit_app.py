@@ -113,4 +113,32 @@ def fetch_all_data(df_input):
             gm_3y, nm_3y, roe_3y = fetch_historical_averages(t, c_gm, c_nm, c_roe)
 
             res.append({
-                "t
+                "t": t, "inf": inf, "rsi": rsi, 
+                "kat": str(row.get('Kategorie')), 
+                "earn": row.get('Earnings Day'),
+                "name": inf.get('longName', t),
+                "gm_3y": gm_3y, "nm_3y": nm_3y, "roe_3y": roe_3y
+            })
+        except: continue
+    return res
+
+# --- BEZPEČNÉ NAČTENÍ S INDIKÁTOREM ---
+df_raw_list = nacti_seznam(ODKAZ_NA_TABULKU)
+
+if df_raw_list.empty:
+    st.error("❌ Nepodařilo se načíst data z Google tabulky. Zkontroluj odkaz nebo připojení.")
+    st.stop()
+
+with st.spinner("🔄 Načítám živá data z Yahoo Finance... Prosím strpení."):
+    raw_data = fetch_all_data(df_raw_list)
+
+if not raw_data:
+    st.warning("⚠️ Žádná data nebyla z Yahoo Finance stažena. Zkontroluj tickery v tabulce nebo zkus Clear Cache.")
+    st.stop()
+
+# --- 4. SIDEBAR ---
+st.sidebar.markdown("### **📊 Menu**")
+stranka = st.sidebar.radio("Zobrazení:", ["Scoring Matrix", "Vnitřní hodnota (IV)", "Kalendář & RSI"], label_visibility="collapsed")
+st.sidebar.divider()
+
+filtr_kat = st.sidebar.selectbox("Filtr kategorií:", ["Portfolio", "Sledované", "Vše"], index=0)
