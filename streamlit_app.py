@@ -36,7 +36,7 @@ def get_b(val, pasma):
         if val <= p["h"]: return p["b"]
     return pasma[-1]["b"]
 
-# --- 3. NAČTENÍ DAT S CHYTRÝM OBCHÁZENÍM BLOCKU ---
+# --- 3. NAČTENÍ DAT S AUTENTIZACÍ YAHOO ---
 ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
 
 @st.cache_data(ttl=300)
@@ -53,7 +53,6 @@ def nacti_seznam(odkaz):
 @st.cache_data(ttl=86400)
 def fetch_historical_averages(ticker_symbol, session, c_gm, c_nm, c_roe):
     try:
-        # Pokud už jsme v limitu, nebudeme dráždit Yahoo dalšími dotazy
         tk = yf.Ticker(ticker_symbol, session=session)
         fin, bs = tk.financials, tk.balance_sheet
         gm_3y, nm_3y, roe_3y = c_gm, c_nm, c_roe
@@ -70,39 +69,39 @@ def fetch_historical_averages(ticker_symbol, session, c_gm, c_nm, c_roe):
             if v: roe_3y = (sum(v) / len(v)) * 100
         return safe_float(gm_3y), safe_float(nm_3y), safe_float(roe_3y)
     except: 
-        return c_gm, c_nm, c_roe # Při chybě/limitu vrátíme bezpečně aktuální hodnoty
+        return c_gm, c_nm, c_roe
 
 @st.cache_data(ttl=3600)
 def fetch_all_data(df_input):
     res, chyby = [], []
     if df_input.empty: return res
     
-    # Rotace User-Agentů (pokaždé vypadáme jako jiný prohlížeč)
-    user_agents = [
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0',
-        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0'
-    ]
-    
+    # Inicializace čisté session a pokus o stažení autentizačních prvků přímo přes yfinance mechanismus
     session = requests.Session()
-    session.headers.update({'User-Agent': random.choice(user_agents)})
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+    })
     
+    # Tento trik donutí yfinance interně vygenerovat platné cookies pro danou session
+    try:
+        yf.utils.get_html("https://fc.yahoo.com", session=session)
+    except:
+        pass
+
     for row in df_input.to_dict('records'):
         t = str(row.get('Ticker', '')).strip()
         if not t or t in ["-", "nan", "TICKER"]: continue
         
-        # Jemný time delay proti agresivnímu blockování
-        time.sleep(0.2)
+        time.sleep(0.3) # Bezpečný rozestup
         
         try:
             tk = yf.Ticker(t, session=session)
             inf = tk.info
             
-            # Pokud schytáme Rate Limit hned na startu
             if not inf or 'longName' not in inf:
-                chyby.append(f"{t}: Bez odezvy (Rate Limit)")
+                chyby.append(f"{t}: Bez odezvy")
                 continue
             
             hi = tk.history(period="1mo")
@@ -120,21 +119,18 @@ def fetch_all_data(df_input):
         except Exception as e:
             chyby.append(f"{t}: {e}")
             
-    if chyby: 
-        st.sidebar.warning(f"⚠️ Yahoo omezení: {chyby[0]}")
     return res
 
 # --- NAČTENÍ DAT SPUŠTĚNÍ ---
 df_raw_list = nacti_seznam(ODKAZ_NA_TABULKU)
 if df_raw_list.empty: st.stop()
 
-with st.spinner("🔄 Prorážím blokádu Yahoo Finance a načítám data..."):
+with st.spinner("🔒 Generuji autorizační token Yahoo a stahuji data..."):
     raw_data = fetch_all_data(df_raw_list)
 
-# OCHRANA: Pokud selhalo úplně všechno, vytvoříme nouzová prázdná data, aby aplikace nespadla do bílé obrazovky
 if not raw_data:
-    st.error("❌ Yahoo Finance momentálně kompletně blokuje požadavky z tohoto cloudového serveru.")
-    st.info("Zkus aplikaci za chvíli restartovat (vpravo nahoře přes tři tečky -> Rerun), nebo počkat na uvolnění IP adresy. Aplikace nyní čeká na spojení.")
+    st.error("❌ Yahoo Finance požadavky přes tento cloudový server jsou stále zablokované.")
+    st.info("Zkus nyní vpravo nahoře kliknout na tři tečky -> **Clear cache** a poté **Rerun**. Vyčištění cache může vynutit změnu uzlu serveru.")
     st.stop()
 
 # --- 4. SIDEBAR ---
