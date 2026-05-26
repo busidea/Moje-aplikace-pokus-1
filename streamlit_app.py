@@ -6,9 +6,10 @@ from datetime import datetime, date
 # --- 1. KONFIGURACE A STYL ---
 st.set_page_config(page_title="Investiční Terminál", layout="wide")
 
+# Poladění horního prostoru – přidán mírný padding nahoře, aby nebyl pásek oříznutý
 st.markdown("""
     <style>
-    .block-container { padding-top: 1.0rem; padding-bottom: 0rem; }
+    .block-container { padding-top: 1.5rem; padding-bottom: 0rem; }
     [data-testid="stDataFrame"] td { text-align: right !important; }
     [data-testid="stDataFrame"] [role="gridcell"]:first-child { font-weight: bold !important; color: #004080 !important; }
     #MainMenu {visibility: hidden;} footer {visibility: hidden;}
@@ -154,13 +155,13 @@ filtr_kat = st.sidebar.selectbox("Filtr kategorií:", ["Portfolio", "Sledované"
 
 filtered_data = [d for d in raw_data if filtr_kat == "Vše" or d["kat"] == filtr_kat]
 
-# --- 5. LOGIKA STRÁNEK ---
+# --- 5. LOGIKA STRÁNEK VČETNĚ DYNAMICKÝCH NÁZVŮ LEGENDY ---
 if not filtered_data:
     st.info(f"Pro filtr '{filtr_kat}' nebyly nalezeny žádné akcie.")
 else:
     if stranka == "Scoring Matrix":
-        # --- 💡 LEGENDA ---
-        with st.expander("Legenda", expanded=False):
+        # --- 💡 LEGENDA SE SPOJENÝM NÁZVEM ---
+        with st.expander("📊 Scoring Matrix | Legenda", expanded=False):
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.markdown("**🎨 Barevné buňky**")
@@ -176,9 +177,6 @@ else:
                 st.markdown("**⚙️ Výpočet a Váhy**")
                 st.markdown("* **P/E penalizace:** Pokud Forward P/E roste oproti Trailing P/E, model krátí body za valuaci o 50 %.")
                 st.markdown("* **3Y Sloupce:** Ukazují tříletý historický průměr pro zachycení cykličnosti.")
-
-        # Drobná vizuální linka, aby tabulka nesplývala s expanderem
-        st.markdown("<p style='margin-bottom: -10px; color: #888; font-size: 13px;'>📈 Scoring Matrix</p>", unsafe_allow_html=True)
 
         # Nastavení strategií v sidebaru
         st.sidebar.markdown("### ⚙️ Nastavení matice")
@@ -303,8 +301,8 @@ else:
             st.dataframe(df.style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn", vmin=0, vmax=150), use_container_width=True, hide_index=True, height=750, column_order=["Titul", "Cena", "Změna"] + mapping_keys + ["Score"], column_config=nastaveni_sloupcu)
 
     elif stranka == "Vnitřní hodnota (IV)":
-        # --- 💡 LEGENDA ---
-        with st.expander("Legenda", expanded=False):
+        # --- 💡 LEGENDA SE SPOJENÝM NÁZVEM ---
+        with st.expander("⚖️ Vnitřní hodnota (IV) | Legenda", expanded=False):
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.markdown("**🎨 Barevné řádky**")
@@ -317,8 +315,6 @@ else:
             with col3:
                 st.markdown("**🛠️ Výpočet Férové ceny**")
                 st.markdown("* **Vážený průměr:** Výsledná férová cena je kombinací všech 3 pilířů. Váhy lze upravit v levém panelu.")
-
-        st.markdown("<p style='margin-bottom: -10px; color: #888; font-size: 13px;'>⚖️ Vnitřní hodnota (IV)</p>", unsafe_allow_html=True)
 
         show_details = st.sidebar.toggle("🔓 Zobrazit detailní metody", value=False)
         with st.sidebar.expander("⚖️ Váhy pilířů", expanded=False):
@@ -373,8 +369,8 @@ else:
             st.dataframe(df_iv.style.apply(apply_all_styles, axis=1).format({"Cena": "{:.2f}"}), use_container_width=True, hide_index=True, height=850, column_config={"Potenciál %": st.column_config.NumberColumn("Potenciál %", format="%.1f%%")})
 
     else:
-        # --- 💡 LEGENDA ---
-        with st.expander("Legenda", expanded=False):
+        # --- 💡 LEGENDA SE SPOJENÝM NÁZVEM ---
+        with st.expander("📅 Kalendář & Technika | Legenda", expanded=False):
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.markdown("**🛡️ Indikátor Vzdálenost od MA50**")
@@ -389,8 +385,6 @@ else:
             with col3:
                 st.markdown("**💶 Dividendy a Daně**")
                 st.markdown("* **Čistý výnos:** Výnos očištěný o srážkovou daň podle země (USA/ČR 15 %, Německo 25 %, UK 0 %).")
-
-        st.markdown("<p style='margin-bottom: -10px; color: #888; font-size: 13px;'>📅 Kalendář & Technika</p>", unsafe_allow_html=True)
 
         c_rows, today = [], date.today()
         for item in filtered_data:
@@ -419,4 +413,4 @@ else:
                 elif r["Vzdálenost od MA50"] > 15: s[ma_idx] = 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold' 
                 return s
                 
-            st.dataframe(df_c.style.apply(style_calendar, axis=1), use_container_width=True, hide_index=True, height=850, column_config={"Div. výnos (hrubý)": st.column_config.NumberColumn("Div. výnos (hrubý)", format="%.2f%%"), "Čistý výnos (odhad)": st.column_config.NumberColumn("Čistý výnos (odhad)", format="%.2f%%"), "Vzdálenost od MA50": st.column_config.NumberColumn("Vzdalenost od MA50", format="%.1f%%")}, column_order=["Titul", "Ticker", "Earnings", "Dní do", "Dividenda", "Div. výnos (hrubý)", "Čistý výnos (odhad)", "Ex-Date", "Doporučení", "Vzdálenost od MA50"])
+            st.dataframe(df_c.style.apply(style_calendar, axis=1), use_container_width=True, hide_index=True, height=850, column_config={"Div. výnos (hrubý)": st.column_config.NumberColumn("Div. výnos (hrubý)", format="%.2f%%"), "Čistý výnos (odhad)": st.column_config.NumberColumn("Čistý výnos (odhad)", format="%.2f%%"), "Vzdálenost od MA50": st.column_config.NumberColumn("Vzdálenost od MA50", format="%.1f%%")}, column_order=["Titul", "Ticker", "Earnings", "Dní do", "Dividenda", "Div. výnos (hrubý)", "Čistý výnos (odhad)", "Ex-Date", "Doporučení", "Vzdálenost od MA50"])
