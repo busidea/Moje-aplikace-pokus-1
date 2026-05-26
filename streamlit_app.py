@@ -45,7 +45,7 @@ def nacti_seznam(odkaz):
         return df
     except: return pd.DataFrame()
 
-# --- 🧠 UNIFIKOVANÉ DATA: Vše z jednoho dotazu na ticker (Uložené na 1 hodinu kvůli blokování) ---
+# --- 🧠 UNIFIKOVANÉ DATA ---
 @st.cache_data(ttl=3600)
 def fetch_all_stock_data(tickers):
     stock_data = {}
@@ -82,12 +82,10 @@ def fetch_all_stock_data(tickers):
                 vals = [fin.loc['Net Income', r] / bs.loc['Stockholders Equity', r] for r in roky if bs.loc['Stockholders Equity', r] > 0]
                 if vals: roe_3y = (sum(vals) / len(vals)) * 100
 
-            # Bezpečné vytáhnutí živé ceny a včerejšího závěru přímo z info struktury
             cena_act = safe_float(inf.get('currentPrice', inf.get('regularMarketPrice', inf.get('previousClose', 0))))
             cena_prev = safe_float(inf.get('previousClose', cena_act))
             zmena = ((cena_act / cena_prev) - 1) * 100 if cena_prev > 0 else 0.0
 
-            # Alternativa k RSI: Pozice vůči 50dennímu průměru (MA50)
             ma50 = safe_float(inf.get('fiftyDayAverage', 0))
             vzdalenost_ma50 = ((cena_act / ma50) - 1) * 100 if ma50 > 0 else 0.0
 
@@ -136,12 +134,39 @@ for row in df_raw_list.to_dict('records'):
         "gm_3y": fund["gm_3y"], "nm_3y": fund["nm_3y"], "roe_3y": fund["roe_3y"]
     })
 
-# --- 4. SIDEBAR MENU ---
+# --- 4. SIDEBAR MENU A LEGENDY ---
 st.sidebar.markdown("### **📊 Menu**")
 stranka = st.sidebar.radio("Zobrazení:", ["Scoring Matrix", "Vnitřní hodnota (IV)", "Kalendář & Technika"], label_visibility="collapsed")
 st.sidebar.divider()
 
 filtr_kat = st.sidebar.selectbox("Filtr kategorií:", ["Portfolio", "Sledované", "Vše"], index=0)
+
+# --- 💡 ROZKLIKÁVACÍ VYČERPÁVAJÍCÍ LEGENDA V SIDEBARU ---
+with st.sidebar.expander("📖 Vyčerpávající legenda pojmů & barev", expanded=False):
+    st.markdown("""
+    ### **🎨 Barevné kódování tabulek**
+    * 🟢 **Zelené zvýraznění:** Akcie je podhodnocená, silná v dané metrice, přeprodaná (nákupní příležitost), nebo má status *Buy / Strong Buy*.
+    * 🔴 **Červené zvýraznění:** Akcie je předražená, vykazuje vysoké riziko (např. vysoký dluh), je překoupená, nebo má blízko k výsledkům (Earnings).
+    * 🟡 **Žluté zvýraznění:** Blížící se klíčová událost (např. Earnings do 14 dnů).
+    
+    ### **📈 Technické & Kalendářní ukazatele**
+    * **Vzdálenost od MA50:** Vyjadřuje procentuální odchylku aktuální tržní ceny od 50denního klouzavého průměru ($MA_{50}$). Slouží jako spolehlivá náhrada RSI.
+        * **Méně než -10 % (Zelená):** Silně přeprodáno. Cena je výrazně pod svým průměrem, což historicky indikuje nákupní zónu.
+        * **Více než +15 % (Červená):** Překoupeno. Cena zažila prudký růst a hrozí krátkodobá korekce.
+    * **Dní do (Earnings):** Počet dní zbývajících do vyhlášení kvartálních výsledků. Červená značí, že výsledky byly dnes/včera, žlutá varuje před blížícím se reportem do 2 týdnů.
+    * **Čistý výnos (odhad):** Hrubý dividendový výnos očištěný o automatickou srážkovou daň (15 % pro USA/ČR, 25 % pro Německo, 0 % pro vybrané UK tituly jako BTI a SHEL).
+    
+    ### **📊 Scoring Matrix (Fundamenty)**
+    * **Score:** Celkové bodové ohodnocení (0–150+) na základě nastavených vah a pásem. Vyšší skóre = fundamentálně zdravější a levnější akcie.
+    * **Forward P/E vs P/E:** Pokud je Forward P/E výrazně nižší než současné P/E (Zelená), trh očekává růst zisků. Pokud je vyšší (Červená), očekává se pokles ziskovosti.
+    * **Dluh D/E:** Poměr dluhu k vlastnímu kapitálu. Hodnoty nad 120 % jsou červeně zvýrazněny jako zvýšené finanční riziko.
+    
+    ### **⚖️ Metody vnitřní hodnoty (IV)**
+    * **P1: Ziskový pilíř:** Kombinuje Grahamovo číslo, klasické cílové P/E a model RIM (Residual Income Model).
+    * **P2: Cashflow pilíř:** Využívá DCF (Discounted Cash Flow z volného cashflow) a DDM (Gordonův dividendový model).
+    * **P3: Majetkový pilíř:** Hodnotí akcii na základě tržeb (P/S) a účetní hodnoty aktiv (NAV).
+    """)
+
 filtered_data = [d for d in raw_data if filtr_kat == "Vše" or d["kat"] == filtr_kat]
 
 # --- 5. LOGIKA PRO STRÁNKY ---
@@ -254,7 +279,8 @@ else:
                 s = [''] * len(r)
                 if r.get("Type") == "Points": return ['color: #888; font-style: italic; background-color: #f8f9fa'] * len(r)
                 for i, col in enumerate(r.index):
-                    if col == "Cena": s[i] = "font-weight: bold; color: #111;"
+                    # --- FIX: Zde se nastavuje výrazná tmavě modrá barva pro živou cenu (TC) ---
+                    if col == "Cena": s[i] = "font-weight: bold; color: #004080; background-color: #f0f7ff;"
                     if col == "Změna": 
                         s[i] = f"color: {'#1b5e20' if r['Změna']>0.01 else ('#b71c1c' if r['Změna']<-0.01 else '#444')}; font-weight: bold;"
                     if col == "Forward P/E" and r.get("P/E", 0) > 0 and r.get("Forward P/E", 0) > 0:
@@ -348,8 +374,8 @@ else:
                 if "buy" in str(r["Doporučení"]).lower(): s[r.index.get_loc("Doporučení")] = 'background-color: #e8f5e9; color: #1b5e20; font-weight: bold'
                 
                 ma_idx = r.index.get_loc("Vzdálenost od MA50")
-                if r["Vzdálenost od MA50"] < -10: s[ma_idx] = 'background-color: #c8e6c9; color: #1b5e20; font-weight: bold' # Přeprodáno (Nákup)
-                elif r["Vzdálenost od MA50"] > 15: s[ma_idx] = 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold' # Překoupeno
+                if r["Vzdálenost od MA50"] < -10: s[ma_idx] = 'background-color: #c8e6c9; color: #1b5e20; font-weight: bold' 
+                elif r["Vzdálenost od MA50"] > 15: s[ma_idx] = 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold' 
                 return s
                 
             st.dataframe(df_c.style.apply(style_calendar, axis=1), use_container_width=True, hide_index=True, height=850, column_config={"Div. výnos (hrubý)": st.column_config.NumberColumn("Div. výnos (hrubý)", format="%.2f%%"), "Čistý výnos (odhad)": st.column_config.NumberColumn("Čistý výnos (odhad)", format="%.2f%%"), "Vzdálenost od MA50": st.column_config.NumberColumn("Vzdálenost od MA50", format="%.1f%%")}, column_order=["Titul", "Ticker", "Earnings", "Dní do", "Dividenda", "Div. výnos (hrubý)", "Čistý výnos (odhad)", "Ex-Date", "Doporučení", "Vzdálenost od MA50"])
