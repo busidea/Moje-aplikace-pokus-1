@@ -114,7 +114,8 @@ def fetch_all_stock_data(tickers):
     return stock_data
 
 # --- INICIALIZACE DAT ---
-df_raw_list = nacti_seznam(ODKAZ_NA_TABULLU = ODKAZ_NA_TABULKU)
+# Opraveno volání funkce nacti_seznam bez překlepu v parametru
+df_raw_list = nacti_seznam(ODKAZ_NA_TABULKU)
 
 if df_raw_list.empty:
     st.warning("⚠️ Čekám na platná data z Google tabulky. Zkontrolujte prosím připojení nebo odkaz.")
@@ -344,7 +345,7 @@ else:
             v_ddm = (div * (1 + g_pct)) / (re_pct - g_pct) if (div > 0 and re_pct > g_pct) else 0
             val_p2 = max(v_fcf, v_ddm)
             v_ps = (rev / shares) * target_ps if (shares > 0 and rev > 0) else 0
-            v_nav = bvps if bvps > 0 else 0
+            v_nav = bvps = bvps if bvps > 0 else 0
             val_p3 = max(v_ps, v_nav)
 
             ws = [w1, w2, w3]; vals = [val_p1, val_p2, val_p3]
