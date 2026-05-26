@@ -6,7 +6,7 @@ from datetime import datetime, date
 # --- 1. KONFIGURACE A STYL ---
 st.set_page_config(page_title="Investiční Terminál", layout="wide")
 
-# Polazení horního prostoru – padding-top zvýšen na 2.2rem pro posun o cca 3-4 mm dolů
+# Polazení horního prostoru – padding-top 2.2rem pro posun o cca 3-4 mm dolů
 st.markdown("""
     <style>
     .block-container { padding-top: 2.2rem; padding-bottom: 0rem; }
@@ -114,7 +114,7 @@ def fetch_all_stock_data(tickers):
     return stock_data
 
 # --- INICIALIZACE DAT ---
-df_raw_list = nacti_seznam(ODKAZ_NA_TABULKU)
+df_raw_list = nacti_seznam(ODKAZ_NA_TABULLU = ODKAZ_NA_TABULKU)
 
 if df_raw_list.empty:
     st.warning("⚠️ Čekám na platná data z Google tabulky. Zkontrolujte prosím připojení nebo odkaz.")
@@ -255,7 +255,6 @@ else:
 
             total = 0
             row_p = {"Titul": f"    └ body ({t})", "Type": "Points"}
-            p_map = {"P/E": p_pe, "P/S": p_ps, "P/B": p_pb, "P/FCF": p_pfcf, "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Potenciál"}
             p_map = {"P/E": p_pe, "P/S": p_ps, "P/B": p_pb, "P/FCF": p_pfcf, "H-Marže": p_gm, "H-Marže 3Y": p_gm_3y, "Č-Marže": p_nm, "Č-Marže 3Y": p_nm_3y, "ROE": p_roe, "ROE 3Y": p_roe_3y, "Tržby y/y": p_rev, "Zisk y/y": p_eps, "Dluh D/E": p_deb, "Div. výnos": p_div, "Potenciál": p_pot}
             w_map = {"v": w_val, "p": w_prof, "g": w_growth, "r": w_risk}
 
