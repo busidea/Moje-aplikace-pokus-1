@@ -45,9 +45,9 @@ def nacti_seznam(odkaz):
         return df
     except: return pd.DataFrame()
 
-# --- 🐌 POMALÁ DATA: HISTORIE A MARŽE (Uložené na 24 hodin) ---
+# --- 🐌 POMALÁ DATA: HISTORIE A MARŽE (V2 - Vynucené přenačtení paměti) ---
 @st.cache_data(ttl=86400)
-def fetch_heavy_fundamentals(tickers):
+def fetch_heavy_fundamentals_v2(tickers):
     fundamental_data = {}
     for t in tickers:
         try:
@@ -104,24 +104,23 @@ def fetch_heavy_fundamentals(tickers):
             fundamental_data[t] = {}
     return fundamental_data
 
-# --- ⚡ RYCHLÁ DATA: ŽIVÁ CENA A RSI (Uložené na 10 sekund, bezpečné sekvenční stahování) ---
+# --- ⚡ RYCHLÁ DATA: ŽIVÁ CENA A RSI (V2 - Čisté stažení bez staré mezipaměti) ---
 @st.cache_data(ttl=10)
-def fetch_live_prices_and_rsi(tickers):
+def fetch_live_prices_and_rsi_v2(tickers):
     if not tickers: return {}
     live_data = {}
     
     for t in tickers:
         try:
-            # Samostatné stažení historie pro každý ticker (naprosto imunní vůči MultiIndexu a chybám Yahoo)
             tk = yf.Ticker(t)
             df_t = tk.history(period="2mo", progress=False)
             
-            if df_t.empty:
+            if df_t.empty or len(df_t) < 2:
                 live_data[t] = {"cena": 0.0, "zmena": 0.0, "rsi": 50}
                 continue
             
             cena_act = safe_float(df_t['Close'].iloc[-1])
-            cena_prev = safe_float(df_t['Close'].iloc[-2]) if len(df_t) > 1 else cena_act
+            cena_prev = safe_float(df_t['Close'].iloc[-2])
             zmena = ((cena_act / cena_prev) - 1) * 100 if cena_prev > 0 else 0.0
             
             rsi = 50
@@ -129,10 +128,11 @@ def fetch_live_prices_and_rsi(tickers):
                 d = df_t['Close'].diff()
                 g = d.where(d > 0, 0).rolling(14).mean()
                 l = -d.where(d < 0, 0).rolling(14).mean()
-                if l.iloc[-1] != 0:
-                    rsi = 100 - (100 / (1 + (g.iloc[-1] / l.iloc[-1])))
-                else:
-                    rsi = 50
+                
+                last_g = g.values[-1]
+                last_l = l.values[-1]
+                if last_l > 0 and not pd.isna(last_g) and not pd.isna(last_l):
+                    rsi = 100 - (100 / (1 + (last_g / last_l)))
             
             live_data[t] = {"cena": cena_act, "zmena": zmena, "rsi": rsi}
         except:
@@ -149,10 +149,10 @@ if df_raw_list.empty:
 vsechny_tickery = [str(t).strip().upper() for t in df_raw_list['Ticker'].dropna().unique().tolist() if str(t).strip() not in ["-", "nan", "TICKER"]]
 
 with st.spinner("🐌 Kontroluji roční výkazy (Z paměti)..."):
-    pomalá_data = fetch_heavy_fundamentals(vsechny_tickery)
+    pomalá_data = fetch_heavy_fundamentals_v2(vsechny_tickery)
 
 with st.spinner("⚡ Aktualizuji ceny z trhu..."):
-    rychlá_data = fetch_live_prices_and_rsi(vsechny_tickery)
+    rychlá_data = fetch_live_prices_and_rsi_v2(vsechny_tickery)
 
 raw_data = []
 for row in df_raw_list.to_dict('records'):
@@ -161,11 +161,11 @@ for row in df_raw_list.to_dict('records'):
     fund = pomalá_data[t]
     live = rychlá_data.get(t, {"cena": 0.0, "zmena": 0.0, "rsi": 50})
     
-    # Pokud live cena selže, jako záloha poslouží hodnota z info balíku
     cena_zobrazeni = live["cena"] if live["cena"] > 0 else fund.get("currentPrice", 0.0)
+    zmena_zobrazeni = live["zmena"]
     
     raw_data.append({
-        "t": t, "inf": fund, "rsi": live["rsi"], "cena_zive": cena_zobrazeni, "zmena_zive": live["zmena"],
+        "t": t, "inf": fund, "rsi": live["rsi"], "cena_zive": cena_zobrazeni, "zmena_zive": zmena_zobrazeni,
         "kat": str(row.get('Kategorie')), "earn": row.get('Earnings Day'), "name": fund.get("name", t),
         "gm_3y": fund.get("gm_3y", 0.0), "nm_3y": fund.get("nm_3y", 0.0), "roe_3y": fund.get("roe_3y", 0.0)
     })
@@ -288,7 +288,8 @@ else:
                 s = [''] * len(r)
                 if r.get("Type") == "Points": return ['color: #888; font-style: italic; background-color: #f8f9fa'] * len(r)
                 for i, col in enumerate(r.index):
-                    if col in ["Cena", "Změna"]: s[i] = f"color: {'#1b5e20' if r['Změna']>0 else '#b71c1c'}; font-weight: bold"
+                    if col == "Cena": s[i] = "font-weight: bold;"
+                    if col == "Změna": s[i] = f"color: {'#1b5e20' if r['Změna']>0 else ('#b71c1c' if r['Změna']<0 else '#333')}; font-weight: bold"
                     if col == "Forward P/E" and r.get("P/E", 0) > 0 and r.get("Forward P/E", 0) > 0:
                         if r["Forward P/E"] / r["P/E"] > 1.05: s[i] = 'background-color: #ffebee; color: #b71c1c; font-weight: bold'
                         elif r["Forward P/E"] / r["P/E"] < 0.95: s[i] = 'background-color: #e8f5e9; color: #1b5e20; font-weight: bold'
@@ -296,7 +297,7 @@ else:
                     if col == "Dluh D/E" and isinstance(r.get(col), (int, float)) and r[col] > 120: s[i] = 'background-color: #ffcdd2'
                 return s
                 
-            nastaveni_sloupcu = {"Type": None, "Titul": st.column_config.TextColumn("Titul", width=180), "Cena": st.column_config.NumberColumn("Cena", format="%.2f"), "Změna": st.column_config.NumberColumn("Změna", format="%.1f%%"), "Score": st.column_config.NumberColumn("Score", format="%d")}
+            nastaveni_sloupcu = {"Type": None, "Titul": st.column_config.TextColumn("Titul", width=180), "Cena": st.column_config.NumberColumn("Cena", format="%.2f"), "Změna": st.column_config.NumberColumn("Změna", format="%.2f%%"), "Score": st.column_config.NumberColumn("Score", format="%d")}
             for sorted_k in mapping_keys:
                 if sorted_k in pct_cols: nastaveni_sloupcu[sorted_k] = st.column_config.NumberColumn(sorted_k, format="%.1f%%")
                 else: nastaveni_sloupcu[sorted_k] = st.column_config.NumberColumn(sorted_k, format="%.1f")
