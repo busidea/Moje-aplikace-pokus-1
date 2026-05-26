@@ -45,10 +45,10 @@ def nacti_seznam(odkaz):
         return df
     except: return pd.DataFrame()
 
-# --- 🐌 POMALÁ DATA: HISTORIE A MARŽE (V2 - Vynucené přenačtení paměti) ---
-@st.cache_data(ttl=86400)
-def fetch_heavy_fundamentals_v2(tickers):
-    fundamental_data = {}
+# --- 🧠 UNIFIKOVANÉ DATA: Vše z jednoho dotazu na ticker (Uložené na 1 hodinu kvůli blokování) ---
+@st.cache_data(ttl=3600)
+def fetch_all_stock_data(tickers):
+    stock_data = {}
     for t in tickers:
         try:
             tk = yf.Ticker(t)
@@ -63,36 +63,45 @@ def fetch_heavy_fundamentals_v2(tickers):
             c_nm = safe_float(inf.get('profitMargins', 0)) * 100
             c_roe = safe_float(inf.get('returnOnEquity', 0)) * 100
             
-            # 3Y Hrubá Marže
+            # 3Y Marže & ROE kalkulace
             gm_3y = c_gm
             if fin is not None and not fin.empty and 'Gross Profit' in fin.index and 'Total Revenue' in fin.index:
                 roky = fin.columns[:3]
                 vals = [fin.loc['Gross Profit', r] / fin.loc['Total Revenue', r] for r in roky if fin.loc['Total Revenue', r] > 0]
                 if vals: gm_3y = (sum(vals) / len(vals)) * 100
 
-            # 3Y Čistá Marže
             nm_3y = c_nm
             if fin is not None and not fin.empty and 'Net Income' in fin.index and 'Total Revenue' in fin.index:
                 roky = fin.columns[:3]
                 vals = [fin.loc['Net Income', r] / fin.loc['Total Revenue', r] for r in roky if fin.loc['Total Revenue', r] > 0]
                 if vals: nm_3y = (sum(vals) / len(vals)) * 100
 
-            # 3Y ROE
             roe_3y = c_roe
             if fin is not None and not fin.empty and bs is not None and not bs.empty and 'Net Income' in fin.index and 'Stockholders Equity' in bs.index:
                 roky = [r for r in fin.columns[:3] if r in bs.columns]
                 vals = [fin.loc['Net Income', r] / bs.loc['Stockholders Equity', r] for r in roky if bs.loc['Stockholders Equity', r] > 0]
                 if vals: roe_3y = (sum(vals) / len(vals)) * 100
 
-            fundamental_data[t] = {
+            # Bezpečné vytáhnutí živé ceny a včerejšího závěru přímo z info struktury
+            cena_act = safe_float(inf.get('currentPrice', inf.get('regularMarketPrice', inf.get('previousClose', 0))))
+            cena_prev = safe_float(inf.get('previousClose', cena_act))
+            zmena = ((cena_act / cena_prev) - 1) * 100 if cena_prev > 0 else 0.0
+
+            # Alternativa k RSI: Pozice vůči 50dennímu průměru (MA50)
+            ma50 = safe_float(inf.get('fiftyDayAverage', 0))
+            vzdalenost_ma50 = ((cena_act / ma50) - 1) * 100 if ma50 > 0 else 0.0
+
+            stock_data[t] = {
                 "name": inf.get('longName', t), 
+                "cena_zive": cena_act,
+                "zmena_zive": zmena,
+                "vzdalenost_ma50": vzdalenost_ma50,
                 "trailingPE": safe_float(inf.get('trailingPE')), 
                 "forwardPE": safe_float(inf.get('forwardPE')),
                 "priceToSales": safe_float(inf.get('priceToSalesTrailing12Months')), 
                 "priceToBook": safe_float(inf.get('priceToBook')),
                 "marketCap": safe_float(inf.get('marketCap')), 
                 "freeCashflow": safe_float(inf.get('freeCashflow')),
-                "currentPrice": safe_float(inf.get('currentPrice', inf.get('previousClose', 0))),
                 "grossMargins": c_gm, "gm_3y": gm_3y, "profitMargins": c_nm, "nm_3y": nm_3y, "returnOnEquity": c_roe, "roe_3y": roe_3y,
                 "revenueGrowth": safe_float(inf.get('revenueGrowth', 0)) * 100, "earningsGrowth": safe_float(inf.get('earningsGrowth', 0)) * 100,
                 "debtToEquity": safe_float(inf.get('debtToEquity')), "dividendYield": safe_float(inf.get('dividendYield')),
@@ -101,44 +110,8 @@ def fetch_heavy_fundamentals_v2(tickers):
                 "trailingEps": safe_float(inf.get('trailingEps')), "bookValue": safe_float(inf.get('bookValue')), "totalRevenue": safe_float(inf.get('totalRevenue')), "sharesOutstanding": safe_float(inf.get('sharesOutstanding'))
             }
         except:
-            fundamental_data[t] = {}
-    return fundamental_data
-
-# --- ⚡ RYCHLÁ DATA: ŽIVÁ CENA A RSI (V2 - Čisté stažení bez staré mezipaměti) ---
-@st.cache_data(ttl=10)
-def fetch_live_prices_and_rsi_v2(tickers):
-    if not tickers: return {}
-    live_data = {}
-    
-    for t in tickers:
-        try:
-            tk = yf.Ticker(t)
-            df_t = tk.history(period="2mo", progress=False)
-            
-            if df_t.empty or len(df_t) < 2:
-                live_data[t] = {"cena": 0.0, "zmena": 0.0, "rsi": 50}
-                continue
-            
-            cena_act = safe_float(df_t['Close'].iloc[-1])
-            cena_prev = safe_float(df_t['Close'].iloc[-2])
-            zmena = ((cena_act / cena_prev) - 1) * 100 if cena_prev > 0 else 0.0
-            
-            rsi = 50
-            if len(df_t) > 14:
-                d = df_t['Close'].diff()
-                g = d.where(d > 0, 0).rolling(14).mean()
-                l = -d.where(d < 0, 0).rolling(14).mean()
-                
-                last_g = g.values[-1]
-                last_l = l.values[-1]
-                if last_l > 0 and not pd.isna(last_g) and not pd.isna(last_l):
-                    rsi = 100 - (100 / (1 + (last_g / last_l)))
-            
-            live_data[t] = {"cena": cena_act, "zmena": zmena, "rsi": rsi}
-        except:
-            live_data[t] = {"cena": 0.0, "zmena": 0.0, "rsi": 50}
-            
-    return live_data
+            stock_data[t] = {}
+    return stock_data
 
 # --- NAČTENÍ SEZNAMU ---
 df_raw_list = nacti_seznam(ODKAZ_NA_TABULKU)
@@ -148,31 +121,24 @@ if df_raw_list.empty:
 
 vsechny_tickery = [str(t).strip().upper() for t in df_raw_list['Ticker'].dropna().unique().tolist() if str(t).strip() not in ["-", "nan", "TICKER"]]
 
-with st.spinner("🐌 Kontroluji roční výkazy (Z paměti)..."):
-    pomalá_data = fetch_heavy_fundamentals_v2(vsechny_tickery)
-
-with st.spinner("⚡ Aktualizuji ceny z trhu..."):
-    rychlá_data = fetch_live_prices_and_rsi_v2(vsechny_tickery)
+with st.spinner("🚀 Stahuji kompletní tržní data bezpečně z Yahoo..."):
+    data_trhu = fetch_all_stock_data(vsechny_tickery)
 
 raw_data = []
 for row in df_raw_list.to_dict('records'):
     t = str(row.get('Ticker', '')).strip().upper()
-    if t not in pomalá_data or not pomalá_data[t]: continue
-    fund = pomalá_data[t]
-    live = rychlá_data.get(t, {"cena": 0.0, "zmena": 0.0, "rsi": 50})
-    
-    cena_zobrazeni = live["cena"] if live["cena"] > 0 else fund.get("currentPrice", 0.0)
-    zmena_zobrazeni = live["zmena"]
+    if t not in data_trhu or not data_trhu[t]: continue
+    fund = data_trhu[t]
     
     raw_data.append({
-        "t": t, "inf": fund, "rsi": live["rsi"], "cena_zive": cena_zobrazeni, "zmena_zive": zmena_zobrazeni,
-        "kat": str(row.get('Kategorie')), "earn": row.get('Earnings Day'), "name": fund.get("name", t),
-        "gm_3y": fund.get("gm_3y", 0.0), "nm_3y": fund.get("nm_3y", 0.0), "roe_3y": fund.get("roe_3y", 0.0)
+        "t": t, "inf": fund, "vzdalenost_ma50": fund["vzdalenost_ma50"], "cena_zive": fund["cena_zive"], "zmena_zive": fund["zmena_zive"],
+        "kat": str(row.get('Kategorie')), "earn": row.get('Earnings Day'), "name": fund["name"],
+        "gm_3y": fund["gm_3y"], "nm_3y": fund["nm_3y"], "roe_3y": fund["roe_3y"]
     })
 
 # --- 4. SIDEBAR MENU ---
 st.sidebar.markdown("### **📊 Menu**")
-stranka = st.sidebar.radio("Zobrazení:", ["Scoring Matrix", "Vnitřní hodnota (IV)", "Kalendář & RSI"], label_visibility="collapsed")
+stranka = st.sidebar.radio("Zobrazení:", ["Scoring Matrix", "Vnitřní hodnota (IV)", "Kalendář & Technika"], label_visibility="collapsed")
 st.sidebar.divider()
 
 filtr_kat = st.sidebar.selectbox("Filtr kategorií:", ["Portfolio", "Sledované", "Vše"], index=0)
@@ -288,8 +254,9 @@ else:
                 s = [''] * len(r)
                 if r.get("Type") == "Points": return ['color: #888; font-style: italic; background-color: #f8f9fa'] * len(r)
                 for i, col in enumerate(r.index):
-                    if col == "Cena": s[i] = "font-weight: bold;"
-                    if col == "Změna": s[i] = f"color: {'#1b5e20' if r['Změna']>0 else ('#b71c1c' if r['Změna']<0 else '#333')}; font-weight: bold"
+                    if col == "Cena": s[i] = "font-weight: bold; color: #111;"
+                    if col == "Změna": 
+                        s[i] = f"color: {'#1b5e20' if r['Změna']>0.01 else ('#b71c1c' if r['Změna']<-0.01 else '#444')}; font-weight: bold;"
                     if col == "Forward P/E" and r.get("P/E", 0) > 0 and r.get("Forward P/E", 0) > 0:
                         if r["Forward P/E"] / r["P/E"] > 1.05: s[i] = 'background-color: #ffebee; color: #b71c1c; font-weight: bold'
                         elif r["Forward P/E"] / r["P/E"] < 0.95: s[i] = 'background-color: #e8f5e9; color: #1b5e20; font-weight: bold'
@@ -370,7 +337,7 @@ else:
             tax_rate = 0.0 if ticker in ["BTI", "SHEL"] or ".LON" in ticker else (0.15 if currency in ["USD", "CZK"] else 0.25)
             d_yield_net = d_yield_gross * (1 - tax_rate)
 
-            c_rows.append({"Titul": item["name"], "Ticker": ticker, "Earnings": item["earn"] if not pd.isna(item["earn"]) else "-", "Dní do": days_to, "Dividenda": f"{safe_float(inf.get('dividendRate', 0.0)):.2f} {currency}", "Div. výnos (hrubý)": d_yield_gross, "Čistý výnos (odhad)": d_yield_net, "Ex-Date": ex_dt.strftime('%d.%m.%Y') if ex_dt else "-", "Doporučení": inf.get('recommendationKey', '-').replace('_', ' ').title(), "RSI": int(item['rsi']), "_rsi": item["rsi"]})
+            c_rows.append({"Titul": item["name"], "Ticker": ticker, "Earnings": item["earn"] if not pd.isna(item["earn"]) else "-", "Dní do": days_to, "Dividenda": f"{safe_float(inf.get('dividendRate', 0.0)):.2f} {currency}", "Div. výnos (hrubý)": d_yield_gross, "Čistý výnos (odhad)": d_yield_net, "Ex-Date": ex_dt.strftime('%d.%m.%Y') if ex_dt else "-", "Doporučení": inf.get('recommendationKey', '-').replace('_', ' ').title(), "Vzdálenost od MA50": item["vzdalenost_ma50"]})
         
         df_c = pd.DataFrame(c_rows)
         if not df_c.empty:
@@ -379,8 +346,10 @@ else:
                 if r["Dní do"] < 0: s[d_idx] = 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold'
                 elif r["Dní do"] < 14: s[d_idx] = 'background-color: #fff9c4; color: #f57f17; font-weight: bold'
                 if "buy" in str(r["Doporučení"]).lower(): s[r.index.get_loc("Doporučení")] = 'background-color: #e8f5e9; color: #1b5e20; font-weight: bold'
-                if r["_rsi"] < 35: s[r.index.get_loc("RSI")] = 'background-color: #c8e6c9; color: #1b5e20; font-weight: bold'
-                elif r["_rsi"] > 65: s[r.index.get_loc("RSI")] = 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold'
+                
+                ma_idx = r.index.get_loc("Vzdálenost od MA50")
+                if r["Vzdálenost od MA50"] < -10: s[ma_idx] = 'background-color: #c8e6c9; color: #1b5e20; font-weight: bold' # Přeprodáno (Nákup)
+                elif r["Vzdálenost od MA50"] > 15: s[ma_idx] = 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold' # Překoupeno
                 return s
                 
-            st.dataframe(df_c.style.apply(style_calendar, axis=1), use_container_width=True, hide_index=True, height=850, column_config={"_rsi": None, "Div. výnos (hrubý)": st.column_config.NumberColumn("Div. výnos (hrubý)", format="%.2f%%"), "Čistý výnos (odhad)": st.column_config.NumberColumn("Čistý výnos (odhad)", format="%.2f%%")}, column_order=["Titul", "Ticker", "Earnings", "Dní do", "Dividenda", "Div. výnos (hrubý)", "Čistý výnos (odhad)", "Ex-Date", "Doporučení", "RSI"])
+            st.dataframe(df_c.style.apply(style_calendar, axis=1), use_container_width=True, hide_index=True, height=850, column_config={"Div. výnos (hrubý)": st.column_config.NumberColumn("Div. výnos (hrubý)", format="%.2f%%"), "Čistý výnos (odhad)": st.column_config.NumberColumn("Čistý výnos (odhad)", format="%.2f%%"), "Vzdálenost od MA50": st.column_config.NumberColumn("Vzdálenost od MA50", format="%.1f%%")}, column_order=["Titul", "Ticker", "Earnings", "Dní do", "Dividenda", "Div. výnos (hrubý)", "Čistý výnos (odhad)", "Ex-Date", "Doporučení", "Vzdálenost od MA50"])
