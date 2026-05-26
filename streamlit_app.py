@@ -82,9 +82,13 @@ def fetch_heavy_fundamentals(tickers):
                 if vals: roe_3y = (sum(vals) / len(vals)) * 100
 
             fundamental_data[t] = {
-                "name": inf.get('longName', t), "trailingPE": safe_float(inf.get('trailingPE')), "forwardPE": safe_float(inf.get('forwardPE')),
-                "priceToSales": safe_float(inf.get('priceToSalesTrailing12Months')), "priceToBook": safe_float(inf.get('priceToBook')),
-                "marketCap": safe_float(inf.get('marketCap')), "freeCashflow": safe_float(inf.get('freeCashflow')),
+                "name": inf.get('longName', t), 
+                "trailingPE": safe_float(inf.get('trailingPE')), 
+                "forwardPE": safe_float(inf.get('forwardPE')),
+                "priceToSales": safe_float(inf.get('priceToSalesTrailing12Months')), 
+                "priceToBook": safe_float(inf.get('priceToBook')),
+                "marketCap": safe_float(inf.get('marketCap')), 
+                "freeCashflow": safe_float(inf.get('freeCashflow')),
                 "grossMargins": c_gm, "gm_3y": gm_3y, "profitMargins": c_nm, "nm_3y": nm_3y, "returnOnEquity": c_roe, "roe_3y": roe_3y,
                 "revenueGrowth": safe_float(inf.get('revenueGrowth', 0)) * 100, "earningsGrowth": safe_float(inf.get('earningsGrowth', 0)) * 100,
                 "debtToEquity": safe_float(inf.get('debtToEquity')), "dividendYield": safe_float(inf.get('dividendYield')),
@@ -127,7 +131,7 @@ def fetch_live_prices_and_rsi(tickers):
     except:
         return {}
 
-# --- NAČTENÍ ---
+# --- NAČTENÍ SEZNAMU ---
 df_raw_list = nacti_seznam(ODKAZ_NA_TABULKU)
 if df_raw_list.empty: st.stop()
 
@@ -160,12 +164,11 @@ st.sidebar.divider()
 filtr_kat = st.sidebar.selectbox("Filtr kategorií:", ["Portfolio", "Sledované", "Vše"], index=0)
 filtered_data = [d for d in raw_data if filtr_kat == "Vše" or d["kat"] == filtr_kat]
 
-# --- 5. STRÁNKY LOGIKA ---
+# --- 5. LOGIKA PRO STRÁNKY ---
 if stranka == "Scoring Matrix":
     strategie = st.sidebar.selectbox("Strategie:", ["Vlastní", "🛡️ Konzervativní", "⚖️ Vyvážená", "🚀 Růstová"])
     zobrazit_body = st.sidebar.checkbox("⚠️ Detailní body", value=False)
     
-    # Výchozí konfigurace pásem
     h_pe, b_pe = [12, 18, 25, 40, 999], [20, 15, 5, 0, -15]
     h_ps, b_ps = [1.5, 3, 6, 10, 999], [15, 10, 5, 0, -10]
     h_gm, b_gm = [20, 35, 50, 70, 999], [0, 8, 15, 20, 25]
@@ -179,7 +182,7 @@ if stranka == "Scoring Matrix":
         h_pe, b_pe = [20, 35, 50, 80, 999], [15, 25, 15, 5, -5]
         h_ps, b_ps = [3, 6, 12, 20, 999], [10, 15, 20, 5, -10]
 
-    # Dynamické generování ovladačů (Zpátky na liště!)
+    # Dynamické generování ovladačů (Pouze pro Scoring Matrix)
     def vytvor_p(nazev, zk, def_h, def_b):
         with st.sidebar.expander(f"📊 {nazev}", expanded=False):
             d = []
@@ -218,20 +221,20 @@ if stranka == "Scoring Matrix":
     m_rows = []
     for item in filtered_data:
         inf = item["inf"]; t = item["t"]; name = item["name"]
-        pe_tr = inf["trailingPE"] or inf["forwardPE"]
-        pe_fwd = inf["forwardPE"] or pe_tr
-        d_yield = inf["dividendYield"]
+        pe_tr = inf.get("trailingPE", 0) or inf.get("forwardPE", 0)
+        pe_fwd = inf.get("forwardPE", 0) or pe_tr
+        d_yield = inf.get("dividendYield", 0)
         if d_yield < 0.2 and d_yield > 0: d_yield *= 100 
 
         raw_vals = {
             "Cena": item["cena_zive"], "Změna": item["zmena_zive"],
-            "P/E": pe_tr, "Forward P/E": pe_fwd, "P/S": inf["priceToSales"], 
-            "P/B": inf["priceToBook"], "P/FCF": inf["marketCap"]/inf["freeCashflow"] if inf["freeCashflow"] else 0,
-            "H-Marže": inf["grossMargins"], "H-Marže 3Y": item["gm_3y"],
-            "Č-Marže": inf["profitMargins"], "Č-Marže 3Y": item["nm_3y"],
-            "ROE": inf["returnOnEquity"], "ROE 3Y": item["roe_3y"],
-            "Tržby y/y": inf["revenueGrowth"], "Zisk y/y": inf["earningsGrowth"], "Dluh D/E": inf["debtToEquity"], 
-            "Div. výnos": d_yield, "Potenciál": ((inf["targetMeanPrice"]/item["cena_zive"])-1)*100 if inf["targetMeanPrice"] and item["cena_zive"] > 0 else 0
+            "P/E": pe_tr, "Forward P/E": pe_fwd, "P/S": inf.get("priceToSales", 0), 
+            "P/B": inf.get("priceToBook", 0), "P/FCF": inf.get("marketCap", 0)/inf.get("freeCashflow", 1) if inf.get("freeCashflow", 0) else 0,
+            "H-Marže": inf.get("grossMargins", 0), "H-Marže 3Y": item["gm_3y"],
+            "Č-Marže": inf.get("profitMargins", 0), "Č-Marže 3Y": item["nm_3y"],
+            "ROE": inf.get("returnOnEquity", 0), "ROE 3Y": item["roe_3y"],
+            "Tržby y/y": inf.get("revenueGrowth", 0), "Zisk y/y": inf.get("earningsGrowth", 0), "Dluh D/E": inf.get("debtToEquity", 0), 
+            "Div. výnos": d_yield, "Potenciál": ((inf.get("targetMeanPrice", 0)/item["cena_zive"])-1)*100 if inf.get("targetMeanPrice", 0) and item["cena_zive"] > 0 else 0
         }
 
         base_pe_points = get_b(raw_vals["P/E"], p_pe)
@@ -300,9 +303,9 @@ elif stranka == "Vnitřní hodnota (IV)":
     iv_results = []
     for item in filtered_data:
         inf = item["inf"]; price = item["cena_zive"]
-        eps = inf['trailingEps']; bvps = inf['bookValue']
-        fcf = inf['freeCashflow']; rev = inf['totalRevenue']
-        shares = inf['sharesOutstanding']; div = inf['dividendRate']
+        eps = inf.get('trailingEps', 0.0); bvps = inf.get('bookValue', 0.0)
+        fcf = inf.get('freeCashflow', 0.0); rev = inf.get('totalRevenue', 0.0)
+        shares = inf.get('sharesOutstanding', 1.0); div = inf.get('dividendRate', 0.0)
 
         v_graham = (eps * (8.5 + 2 * (g_pct*100)) * 4.4) / y_bond if eps > 0 else 0
         v_pe = eps * target_pe if eps > 0 else 0
@@ -340,16 +343,16 @@ else:
     c_rows, today = [], date.today()
     for item in filtered_data:
         inf = item["inf"]; ticker = item["t"]; days_to = safe_date_diff(item["earn"], today)
-        ex_dt = datetime.fromtimestamp(inf['exDividendDate']).date() if inf.get('exDividendDate') else None
+        ex_dt = datetime.fromtimestamp(inf.get('exDividendDate', 0)).date() if inf.get('exDividendDate') else None
         
-        d_yield_gross = inf['dividendYield']
+        d_yield_gross = inf.get('dividendYield', 0.0)
         if d_yield_gross < 0.2 and d_yield_gross > 0: d_yield_gross *= 100 
         currency = str(inf.get('currency', 'USD')).upper()
         
         tax_rate = 0.0 if ticker in ["BTI", "SHEL"] or ".LON" in ticker else (0.15 if currency in ["USD", "CZK"] else 0.25)
         d_yield_net = d_yield_gross * (1 - tax_rate)
 
-        c_rows.append({"Titul": item["name"], "Ticker": ticker, "Earnings": item["earn"] if not pd.isna(item["earn"]) else "-", "Dní do": days_to, "Dividenda": f"{safe_float(inf.get('dividendRate')):.2f} {currency}", "Div. výnos (hrubý)": d_yield_gross, "Čistý výnos (odhad)": d_yield_net, "Ex-Date": ex_dt.strftime('%d.%m.%Y') if ex_dt else "-", "Doporučení": inf.get('recommendationKey', '-').replace('_', ' ').title(), "RSI": int(item['rsi']), "_rsi": item["rsi"]})
+        c_rows.append({"Titul": item["name"], "Ticker": ticker, "Earnings": item["earn"] if not pd.isna(item["earn"]) else "-", "Dní do": days_to, "Dividenda": f"{safe_float(inf.get('dividendRate', 0.0)):.2f} {currency}", "Div. výnos (hrubý)": d_yield_gross, "Čistý výnos (odhad)": d_yield_net, "Ex-Date": ex_dt.strftime('%d.%m.%Y') if ex_dt else "-", "Doporučení": inf.get('recommendationKey', '-').replace('_', ' ').title(), "RSI": int(item['rsi']), "_rsi": item["rsi"]})
     
     df_c = pd.DataFrame(c_rows)
     if not df_c.empty:
