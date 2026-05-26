@@ -41,7 +41,7 @@ def nacti_seznam(odkaz):
     try:
         df = pd.read_csv(odkaz.replace('/edit?usp=sharing', '/export?format=csv'))
         df.columns = [c.strip() for c in df.columns]
-        df['Ticker'] = df['Ticker'].astype(str).str.upper()
+        df['Ticker'] = df['Ticker'].astype(str).str.upper().str.strip()
         return df
     except: return pd.DataFrame()
 
@@ -89,6 +89,7 @@ def fetch_heavy_fundamentals(tickers):
                 "priceToBook": safe_float(inf.get('priceToBook')),
                 "marketCap": safe_float(inf.get('marketCap')), 
                 "freeCashflow": safe_float(inf.get('freeCashflow')),
+                "currentPrice": safe_float(inf.get('currentPrice', inf.get('previousClose', 0))),
                 "grossMargins": c_gm, "gm_3y": gm_3y, "profitMargins": c_nm, "nm_3y": nm_3y, "returnOnEquity": c_roe, "roe_3y": roe_3y,
                 "revenueGrowth": safe_float(inf.get('revenueGrowth', 0)) * 100, "earningsGrowth": safe_float(inf.get('earningsGrowth', 0)) * 100,
                 "debtToEquity": safe_float(inf.get('debtToEquity')), "dividendYield": safe_float(inf.get('dividendYield')),
@@ -104,14 +105,21 @@ def fetch_heavy_fundamentals(tickers):
 @st.cache_data(ttl=10)
 def fetch_live_prices_and_rsi(tickers):
     if not tickers: return {}
+    live_data = {}
     try:
+        # Hromadné stáhnutí dat
         data = yf.download(tickers, period="2mo", group_by='ticker', progress=False)
-        live_data = {}
+        
         for t in tickers:
             try:
-                df_t = data if len(tickers) == 1 else data[t]
+                # Ošetření, zda Pandas správně vybral pod-tabulku pro daný ticker (i s tečkou)
+                if len(tickers) == 1:
+                    df_t = data
+                else:
+                    df_t = data[t]
+                
                 df_t = df_t.dropna(subset=['Close'])
-                if df_t.empty: continue
+                if df_t.empty: raise ValueError()
                 
                 cena_act = safe_float(df_t['Close'].iloc[-1])
                 cena_prev = safe_float(df_t['Close'].iloc[-2]) if len(df_t) > 1 else cena_act
@@ -126,6 +134,24 @@ def fetch_live_prices_and_rsi(tickers):
                 
                 live_data[t] = {"cena": cena_act, "zmena": zmena, "rsi": rsi}
             except:
+                # Záložní plán: Pokud hromadné stažení pro tento konkrétní evropský ticker selhalo, zkusíme ho stáhnout sólo
+                try:
+                    df_solo = yf.Ticker(t).history(period="2mo", progress=False)
+                    if not df_solo.empty:
+                        cena_act = safe_float(df_solo['Close'].iloc[-1])
+                        cena_prev = safe_float(df_solo['Close'].iloc[-2]) if len(df_solo) > 1 else cena_act
+                        zmena = ((cena_act / cena_prev) - 1) * 100 if cena_prev > 0 else 0.0
+                        
+                        rsi = 50
+                        if len(df_solo) > 14:
+                            d = df_solo['Close'].diff()
+                            g = d.where(d > 0, 0).rolling(14).mean()
+                            l = -df_solo['Close'].where(df_solo['Close'] < 0, 0).rolling(14).mean() # zjednodušené rsi
+                            rsi = 50 # bezpečný střed pro solo výpadek
+                        live_data[t] = {"cena": cena_act, "zmena": zmena, "rsi": rsi}
+                        continue
+                except: pass
+                
                 live_data[t] = {"cena": 0.0, "zmena": 0.0, "rsi": 50}
         return live_data
     except:
@@ -150,8 +176,11 @@ for row in df_raw_list.to_dict('records'):
     fund = pomalá_data[t]
     live = rychlá_data.get(t, {"cena": 0.0, "zmena": 0.0, "rsi": 50})
     
+    # Pojistka: Pokud live cena selhala úplně (0.0), vezmeme cenu z pomalých dat (info)
+    cena_zobrazeni = live["cena"] if live["cena"] > 0 else fund.get("currentPrice", 0.0)
+    
     raw_data.append({
-        "t": t, "inf": fund, "rsi": live["rsi"], "cena_zive": live["cena"], "zmena_zive": live["zmena"],
+        "t": t, "inf": fund, "rsi": live["rsi"], "cena_zive": cena_zobrazeni, "zmena_zive": live["zmena"],
         "kat": str(row.get('Kategorie')), "earn": row.get('Earnings Day'), "name": fund["name"],
         "gm_3y": fund["gm_3y"], "nm_3y": fund["nm_3y"], "roe_3y": fund["roe_3y"]
     })
@@ -182,7 +211,6 @@ if stranka == "Scoring Matrix":
         h_pe, b_pe = [20, 35, 50, 80, 999], [15, 25, 15, 5, -5]
         h_ps, b_ps = [3, 6, 12, 20, 999], [10, 15, 20, 5, -10]
 
-    # Dynamické generování ovladačů (Pouze pro Scoring Matrix)
     def vytvor_p(nazev, zk, def_h, def_b):
         with st.sidebar.expander(f"📊 {nazev}", expanded=False):
             d = []
@@ -306,6 +334,7 @@ elif stranka == "Vnitřní hodnota (IV)":
         eps = inf.get('trailingEps', 0.0); bvps = inf.get('bookValue', 0.0)
         fcf = inf.get('freeCashflow', 0.0); rev = inf.get('totalRevenue', 0.0)
         shares = inf.get('sharesOutstanding', 1.0); div = inf.get('dividendRate', 0.0)
+        if shares == 0: shares = 1.0
 
         v_graham = (eps * (8.5 + 2 * (g_pct*100)) * 4.4) / y_bond if eps > 0 else 0
         v_pe = eps * target_pe if eps > 0 else 0
