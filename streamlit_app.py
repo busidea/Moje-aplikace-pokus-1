@@ -45,7 +45,7 @@ def nacti_seznam(odkaz):
         return df
     except: return pd.DataFrame()
 
-# --- 🐌 POMALÁ DATA: HISTORIE A MARŽE (Uložené na 24 hodin / 86400 sekund) ---
+# --- 🐌 POMALÁ DATA: HISTORIE A MARŽE (Uložené na 24 hodin) ---
 @st.cache_data(ttl=86400)
 def fetch_heavy_fundamentals(tickers):
     fundamental_data = {}
@@ -89,18 +89,18 @@ def fetch_heavy_fundamentals(tickers):
                 "revenueGrowth": safe_float(inf.get('revenueGrowth', 0)) * 100, "earningsGrowth": safe_float(inf.get('earningsGrowth', 0)) * 100,
                 "debtToEquity": safe_float(inf.get('debtToEquity')), "dividendYield": safe_float(inf.get('dividendYield')),
                 "dividendRate": safe_float(inf.get('dividendRate')), "currency": inf.get('currency', 'USD'),
-                "targetMeanPrice": safe_float(inf.get('targetMeanPrice')), "exDividendDate": inf.get('exDividendDate'), "recommendationKey": inf.get('recommendationKey', '-')
+                "targetMeanPrice": safe_float(inf.get('targetMeanPrice')), "exDividendDate": inf.get('exDividendDate'), "recommendationKey": inf.get('recommendationKey', '-'),
+                "trailingEps": safe_float(inf.get('trailingEps')), "bookValue": safe_float(inf.get('bookValue')), "totalRevenue": safe_float(inf.get('totalRevenue')), "sharesOutstanding": safe_float(inf.get('sharesOutstanding'))
             }
         except:
             fundamental_data[t] = {}
     return fundamental_data
 
-# --- ⚡ RYCHLÁ DATA: ŽIVÁ CENA A RSI (Uložené jen na 10 sekund - aktualizuje se přes den) ---
+# --- ⚡ RYCHLÁ DATA: ŽIVÁ CENA A RSI (Uložené na 10 sekund) ---
 @st.cache_data(ttl=10)
 def fetch_live_prices_and_rsi(tickers):
     if not tickers: return {}
     try:
-        # Jeden společný bleskový dotaz na ceny všech akcií naráz
         data = yf.download(tickers, period="2mo", group_by='ticker', progress=False)
         live_data = {}
         for t in tickers:
@@ -127,26 +127,24 @@ def fetch_live_prices_and_rsi(tickers):
     except:
         return {}
 
-# --- SPOLEČNÉ SPUŠTĚNÍ ---
+# --- NAČTENÍ ---
 df_raw_list = nacti_seznam(ODKAZ_NA_TABULKU)
 if df_raw_list.empty: st.stop()
 
 vsechny_tickery = [str(t).strip().upper() for t in df_raw_list['Ticker'].dropna().unique().tolist() if str(t).strip() not in ["-", "nan", "TICKER"]]
 
-with st.spinner("🐌 Kontroluji roční výkazy a marže (Z paměti PC)..."):
+with st.spinner("🐌 Kontroluji roční výkazy (Z paměti)..."):
     pomalá_data = fetch_heavy_fundamentals(vsechny_tickery)
 
-with st.spinner("⚡ Stahuji čerstvé tržní ceny a RSI..."):
+with st.spinner("⚡ Aktualizuji ceny z trhu..."):
     rychlá_data = fetch_live_prices_and_rsi(vsechny_tickery)
 
-# Sestavení čistých dat pro zobrazení
 raw_data = []
 for row in df_raw_list.to_dict('records'):
     t = str(row.get('Ticker', '')).strip().upper()
     if t not in pomalá_data or not pomalá_data[t]: continue
-    
     fund = pomalá_data[t]
-    live = rychlá_data.get(t, {"cena": fund.get('currentPrice', 0.0), "zmena": 0.0, "rsi": 50})
+    live = rychlá_data.get(t, {"cena": 0.0, "zmena": 0.0, "rsi": 50})
     
     raw_data.append({
         "t": t, "inf": fund, "rsi": live["rsi"], "cena_zive": live["cena"], "zmena_zive": live["zmena"],
@@ -154,7 +152,7 @@ for row in df_raw_list.to_dict('records'):
         "gm_3y": fund["gm_3y"], "nm_3y": fund["nm_3y"], "roe_3y": fund["roe_3y"]
     })
 
-# --- 4. SIDEBAR ---
+# --- 4. SIDEBAR MENU ---
 st.sidebar.markdown("### **📊 Menu**")
 stranka = st.sidebar.radio("Zobrazení:", ["Scoring Matrix", "Vnitřní hodnota (IV)", "Kalendář & RSI"], label_visibility="collapsed")
 st.sidebar.divider()
@@ -162,11 +160,12 @@ st.sidebar.divider()
 filtr_kat = st.sidebar.selectbox("Filtr kategorií:", ["Portfolio", "Sledované", "Vše"], index=0)
 filtered_data = [d for d in raw_data if filtr_kat == "Vše" or d["kat"] == filtr_kat]
 
-# --- 5. LOGIKA STRÁNEK ---
+# --- 5. STRÁNKY LOGIKA ---
 if stranka == "Scoring Matrix":
     strategie = st.sidebar.selectbox("Strategie:", ["Vlastní", "🛡️ Konzervativní", "⚖️ Vyvážená", "🚀 Růstová"])
     zobrazit_body = st.sidebar.checkbox("⚠️ Detailní body", value=False)
     
+    # Výchozí konfigurace pásem
     h_pe, b_pe = [12, 18, 25, 40, 999], [20, 15, 5, 0, -15]
     h_ps, b_ps = [1.5, 3, 6, 10, 999], [15, 10, 5, 0, -10]
     h_gm, b_gm = [20, 35, 50, 70, 999], [0, 8, 15, 20, 25]
@@ -180,24 +179,32 @@ if stranka == "Scoring Matrix":
         h_pe, b_pe = [20, 35, 50, 80, 999], [15, 25, 15, 5, -5]
         h_ps, b_ps = [3, 6, 12, 20, 999], [10, 15, 20, 5, -10]
 
-    mapping_keys = ["P/E", "Forward P/E", "P/S", "P/B", "P/FCF", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Potenciál"]
-    pct_cols = ["Změna", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Potenciál"]
-    
-    p_pe = [{"h": h_pe[i], "b": b_pe[i]} for i in range(5)]
-    p_ps = [{"h": h_ps[i], "b": b_ps[i]} for i in range(5)]
-    p_pb = [{"h": h, "b": b} for h, b in zip([1, 2.5, 4, 8, 999], [10, 7, 3, 0, -5])]
-    p_pfcf = [{"h": h, "b": b} for h, b in zip([12, 20, 35, 50, 999], [20, 12, 5, 0, -10])]
-    p_gm = [{"h": h_gm[i], "b": b_gm[i]} for i in range(5)]
-    p_gm_3y = p_gm
-    p_nm = [{"h": h_nm[i], "b": b_nm[i]} for i in range(5)]
-    p_nm_3y = p_nm
-    p_roe = [{"h": h_roe[i], "b": b_roe[i]} for i in range(5)]
-    p_roe_3y = p_roe
-    p_rev = [{"h": h, "b": b} for h, b in zip([0, 10, 20, 35, 999], [-10, 8, 15, 25, 35])]
-    p_eps = [{"h": h, "b": b} for h, b in zip([0, 10, 25, 45, 999], [-15, 10, 20, 28, 40])]
-    p_deb = [{"h": h, "b": b} for h, b in zip([40, 80, 120, 200, 999], [20, 10, 0, -15, -40])]
-    p_div = [{"h": h, "b": b} for h, b in zip([2, 4, 6, 8, 999], [5, 12, 15, 10, 5])]
-    p_pot = [{"h": h, "b": b} for h, b in zip([8, 18, 28, 45, 999], [0, 10, 18, 25, 35])]
+    # Dynamické generování ovladačů (Zpátky na liště!)
+    def vytvor_p(nazev, zk, def_h, def_b):
+        with st.sidebar.expander(f"📊 {nazev}", expanded=False):
+            d = []
+            for i in range(5):
+                c1, c2 = st.columns(2)
+                h = c1.number_input(f"Do:", value=float(def_h[i]), key=f"{zk}_{i}")
+                b = c2.number_input(f"Body", value=int(def_b[i]), key=f"{zk}_{i}b")
+                d.append({"h": h, "b": b})
+            return d
+
+    p_pe = vytvor_p("P/E", "pe", h_pe, b_pe)
+    p_ps = vytvor_p("P/S", "ps", h_ps, b_ps)
+    p_pb = vytvor_p("P/B", "pb", [1, 2.5, 4, 8, 999], [10, 7, 3, 0, -5])
+    p_pfcf = vytvor_p("P/FCF", "pfcf", [12, 20, 35, 50, 999], [20, 12, 5, 0, -10])
+    p_gm = vytvor_p("H-Marže", "gm", h_gm, b_gm)
+    p_gm_3y = vytvor_p("H-Marže 3Y", "gm3y", h_gm, b_gm)
+    p_nm = vytvor_p("Č-Marže", "nm", h_nm, b_nm)
+    p_nm_3y = vytvor_p("Č-Marže 3Y", "nm3y", h_nm, b_nm)
+    p_roe = vytvor_p("ROE", "roe", h_roe, b_roe)
+    p_roe_3y = vytvor_p("ROE 3Y", "roe3y", h_roe, b_roe)
+    p_rev = vytvor_p("Tržby y/y", "rev", [0, 10, 20, 35, 999], [-10, 8, 15, 25, 35])
+    p_eps = vytvor_p("Zisk y/y", "eps", [0, 10, 25, 45, 999], [-15, 10, 20, 28, 40])
+    p_deb = vytvor_p("Dluh D/E", "deb", [40, 80, 120, 200, 999], [20, 10, 0, -15, -40])
+    p_div = vytvor_p("Div. výnos", "div", [2, 4, 6, 8, 999], [5, 12, 15, 10, 5])
+    p_pot = vytvor_p("Potenciál", "pot", [8, 18, 28, 45, 999], [0, 10, 18, 25, 35])
 
     st.sidebar.divider()
     w_val = st.sidebar.slider("Váha: Valuace", 0.5, 3.0, 1.0)
@@ -205,10 +212,12 @@ if stranka == "Scoring Matrix":
     w_growth = st.sidebar.slider("Váha: Růst", 0.5, 3.0, 1.0)
     w_risk = st.sidebar.slider("Váha: Riziko", 0.5, 3.0, 1.0)
 
+    mapping_keys = ["P/E", "Forward P/E", "P/S", "P/B", "P/FCF", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Potenciál"]
+    pct_cols = ["Změna", "H-Marže", "H-Marže 3Y", "Č-Marže", "Č-Marže 3Y", "ROE", "ROE 3Y", "Tržby y/y", "Zisk y/y", "Dluh D/E", "Div. výnos", "Potenciál"]
+    
     m_rows = []
     for item in filtered_data:
         inf = item["inf"]; t = item["t"]; name = item["name"]
-        
         pe_tr = inf["trailingPE"] or inf["forwardPE"]
         pe_fwd = inf["forwardPE"] or pe_tr
         d_yield = inf["dividendYield"]
@@ -291,9 +300,9 @@ elif stranka == "Vnitřní hodnota (IV)":
     iv_results = []
     for item in filtered_data:
         inf = item["inf"]; price = item["cena_zive"]
-        eps = safe_float(inf.get('trailingEps')); bvps = safe_float(inf.get('bookValue'))
-        fcf = safe_float(inf.get('freeCashflow')); rev = safe_float(inf.get('totalRevenue'))
-        shares = safe_float(inf.get('sharesOutstanding')); div = safe_float(inf.get('dividendRate'))
+        eps = inf['trailingEps']; bvps = inf['bookValue']
+        fcf = inf['freeCashflow']; rev = inf['totalRevenue']
+        shares = inf['sharesOutstanding']; div = inf['dividendRate']
 
         v_graham = (eps * (8.5 + 2 * (g_pct*100)) * 4.4) / y_bond if eps > 0 else 0
         v_pe = eps * target_pe if eps > 0 else 0
@@ -333,7 +342,7 @@ else:
         inf = item["inf"]; ticker = item["t"]; days_to = safe_date_diff(item["earn"], today)
         ex_dt = datetime.fromtimestamp(inf['exDividendDate']).date() if inf.get('exDividendDate') else None
         
-        d_yield_gross = safe_float(inf.get('dividendYield'))
+        d_yield_gross = inf['dividendYield']
         if d_yield_gross < 0.2 and d_yield_gross > 0: d_yield_gross *= 100 
         currency = str(inf.get('currency', 'USD')).upper()
         
@@ -345,7 +354,7 @@ else:
     df_c = pd.DataFrame(c_rows)
     if not df_c.empty:
         def style_calendar(r):
-            s = [''] * len(r); d_idx = r.index.get_loc("Dní do"); rec_idx = r.index.get_loc("Dní do") # oprava indexu
+            s = [''] * len(r); d_idx = r.index.get_loc("Dní do")
             if r["Dní do"] < 0: s[d_idx] = 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold'
             elif r["Dní do"] < 14: s[d_idx] = 'background-color: #fff9c4; color: #f57f17; font-weight: bold'
             if "buy" in str(r["Doporučení"]).lower(): s[r.index.get_loc("Doporučení")] = 'background-color: #e8f5e9; color: #1b5e20; font-weight: bold'
