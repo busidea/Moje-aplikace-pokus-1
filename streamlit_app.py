@@ -104,42 +104,41 @@ def fetch_heavy_fundamentals(tickers):
             fundamental_data[t] = {}
     return fundamental_data
 
-# --- ⚡ RYCHLÁ DATA: ŽIVÁ CENA A RSI (Uložené na 10 sekund, bezpečné hromadné stahování) ---
+# --- ⚡ RYCHLÁ DATA: ŽIVÁ CENA A RSI (Uložené na 10 sekund, bezpečné sekvenční stahování) ---
 @st.cache_data(ttl=10)
 def fetch_live_prices_and_rsi(tickers):
     if not tickers: return {}
     live_data = {}
-    try:
-        # Oficiální a bezpečné hromadné načtení objektů bez rizika MultiIndexu
-        group = yf.Tickers(" ".join(tickers))
-        for t in tickers:
-            try:
-                tk_obj = group.tickers[t]
-                df_t = tk_obj.history(period="2mo", progress=False)
-                
-                if df_t.empty:
-                    live_data[t] = {"cena": 0.0, "zmena": 0.0, "rsi": 50}
-                    continue
-                
-                cena_act = safe_float(df_t['Close'].iloc[-1])
-                cena_prev = safe_float(df_t['Close'].iloc[-2]) if len(df_t) > 1 else cena_act
-                zmena = ((cena_act / cena_prev) - 1) * 100 if cena_prev > 0 else 0.0
-                
-                rsi = 50
-                if len(df_t) > 14:
-                    d = df_t['Close'].diff()
-                    g = d.where(d > 0, 0).rolling(14).mean()
-                    l = -d.where(d < 0, 0).rolling(14).mean()
-                    rsi = 100 - (100 / (1 + (g.iloc[-1]/l.iloc[-1]))) if l.iloc[-1] != 0 else 50
-                
-                live_data[t] = {"cena": cena_act, "zmena": zmena, "rsi": rsi}
-            except:
+    
+    for t in tickers:
+        try:
+            # Samostatné stažení historie pro každý ticker (naprosto imunní vůči MultiIndexu a chybám Yahoo)
+            tk = yf.Ticker(t)
+            df_t = tk.history(period="2mo", progress=False)
+            
+            if df_t.empty:
                 live_data[t] = {"cena": 0.0, "zmena": 0.0, "rsi": 50}
-        return live_data
-    except:
-        # Totální fallback, kdyby selhala celá skupina
-        for t in tickers: live_data[t] = {"cena": 0.0, "zmena": 0.0, "rsi": 50}
-        return live_data
+                continue
+            
+            cena_act = safe_float(df_t['Close'].iloc[-1])
+            cena_prev = safe_float(df_t['Close'].iloc[-2]) if len(df_t) > 1 else cena_act
+            zmena = ((cena_act / cena_prev) - 1) * 100 if cena_prev > 0 else 0.0
+            
+            rsi = 50
+            if len(df_t) > 14:
+                d = df_t['Close'].diff()
+                g = d.where(d > 0, 0).rolling(14).mean()
+                l = -d.where(d < 0, 0).rolling(14).mean()
+                if l.iloc[-1] != 0:
+                    rsi = 100 - (100 / (1 + (g.iloc[-1] / l.iloc[-1])))
+                else:
+                    rsi = 50
+            
+            live_data[t] = {"cena": cena_act, "zmena": zmena, "rsi": rsi}
+        except:
+            live_data[t] = {"cena": 0.0, "zmena": 0.0, "rsi": 50}
+            
+    return live_data
 
 # --- NAČTENÍ SEZNAMU ---
 df_raw_list = nacti_seznam(ODKAZ_NA_TABULKU)
@@ -162,7 +161,7 @@ for row in df_raw_list.to_dict('records'):
     fund = pomalá_data[t]
     live = rychlá_data.get(t, {"cena": 0.0, "zmena": 0.0, "rsi": 50})
     
-    # Pojistka: Pokud live stahování selhalo (cena je 0.0), zachráníme řádek cenou z pomalého info balíku
+    # Pokud live cena selže, jako záloha poslouží hodnota z info balíku
     cena_zobrazeni = live["cena"] if live["cena"] > 0 else fund.get("currentPrice", 0.0)
     
     raw_data.append({
