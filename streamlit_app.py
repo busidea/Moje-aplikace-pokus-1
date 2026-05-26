@@ -8,7 +8,7 @@ st.set_page_config(page_title="Investiční Terminál", layout="wide")
 
 st.markdown("""
     <style>
-    .block-container { padding-top: 3.5rem; padding-bottom: 0rem; }
+    .block-container { padding-top: 2.0rem; padding-bottom: 0rem; }
     [data-testid="stDataFrame"] td { text-align: right !important; }
     [data-testid="stDataFrame"] [role="gridcell"]:first-child { font-weight: bold !important; color: #004080 !important; }
     #MainMenu {visibility: hidden;} footer {visibility: hidden;}
@@ -33,7 +33,7 @@ def get_b(val, pasma):
         if val <= p["h"]: return p["b"]
     return pasma[-1]["b"]
 
-# --- 3. NAČTENÍ SEZNAMU Z GOOGLE ---
+# --- 3. NAČTENÍ SEZNAMU Z GOOGLE TABULKY ---
 ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j_nmJlXEs2aaU6YWHAw7aoZg/edit?usp=sharing"
 
 @st.cache_data(ttl=300)
@@ -45,7 +45,7 @@ def nacti_seznam(odkaz):
         return df
     except: return pd.DataFrame()
 
-# --- 🧠 UNIFIKOVANÉ DATA ---
+# --- 🧠 UNIFIKOVANÁ DATA (Bezpečné stažení z Yahoo bez blokování) ---
 @st.cache_data(ttl=3600)
 def fetch_all_stock_data(tickers):
     stock_data = {}
@@ -111,7 +111,7 @@ def fetch_all_stock_data(tickers):
             stock_data[t] = {}
     return stock_data
 
-# --- NAČTENÍ SEZNAMU ---
+# --- INICIALIZACE DAT ---
 df_raw_list = nacti_seznam(ODKAZ_NA_TABULKU)
 if df_raw_list.empty:
     st.error("Nepodařilo se načíst seznam z Google tabulky.")
@@ -119,7 +119,7 @@ if df_raw_list.empty:
 
 vsechny_tickery = [str(t).strip().upper() for t in df_raw_list['Ticker'].dropna().unique().tolist() if str(t).strip() not in ["-", "nan", "TICKER"]]
 
-with st.spinner("🚀 Stahuji kompletní tržní data bezpečně z Yahoo..."):
+with st.spinner("🚀 Aktualizuji data z trhů bezpečně přes Yahoo Info API..."):
     data_trhu = fetch_all_stock_data(vsechny_tickery)
 
 raw_data = []
@@ -134,48 +134,49 @@ for row in df_raw_list.to_dict('records'):
         "gm_3y": fund["gm_3y"], "nm_3y": fund["nm_3y"], "roe_3y": fund["roe_3y"]
     })
 
-# --- 4. SIDEBAR MENU A LEGENDY ---
-st.sidebar.markdown("### **📊 Menu**")
+# --- 4. SIDEBAR MENU (Zjednodušené a čisté) ---
+st.sidebar.markdown("### **📊 Hlavní navigace**")
 stranka = st.sidebar.radio("Zobrazení:", ["Scoring Matrix", "Vnitřní hodnota (IV)", "Kalendář & Technika"], label_visibility="collapsed")
+
+# Přesun přepínače bodů hned pod výběr stránek pro maximální přehlednost
+zobrazit_body = False
+if stranka == "Scoring Matrix":
+    st.sidebar.divider()
+    zobrazit_body = st.sidebar.checkbox("⚠️ Detailní přidělené body", value=False)
+
 st.sidebar.divider()
-
 filtr_kat = st.sidebar.selectbox("Filtr kategorií:", ["Portfolio", "Sledované", "Vše"], index=0)
-
-# --- 💡 ROZKLIKÁVACÍ VYČERPÁVAJÍCÍ LEGENDA V SIDEBARU ---
-with st.sidebar.expander("📖 Vyčerpávající legenda pojmů & barev", expanded=False):
-    st.markdown("""
-    ### **🎨 Barevné kódování tabulek**
-    * 🟢 **Zelené zvýraznění:** Akcie je podhodnocená, silná v dané metrice, přeprodaná (nákupní příležitost), nebo má status *Buy / Strong Buy*.
-    * 🔴 **Červené zvýraznění:** Akcie je předražená, vykazuje vysoké riziko (např. vysoký dluh), je překoupená, nebo má blízko k výsledkům (Earnings).
-    * 🟡 **Žluté zvýraznění:** Blížící se klíčová událost (např. Earnings do 14 dnů).
-    
-    ### **📈 Technické & Kalendářní ukazatele**
-    * **Vzdálenost od MA50:** Vyjadřuje procentuální odchylku aktuální tržní ceny od 50denního klouzavého průměru ($MA_{50}$). Slouží jako spolehlivá náhrada RSI.
-        * **Méně než -10 % (Zelená):** Silně přeprodáno. Cena je výrazně pod svým průměrem, což historicky indikuje nákupní zónu.
-        * **Více než +15 % (Červená):** Překoupeno. Cena zažila prudký růst a hrozí krátkodobá korekce.
-    * **Dní do (Earnings):** Počet dní zbývajících do vyhlášení kvartálních výsledků. Červená značí, že výsledky byly dnes/včera, žlutá varuje před blížícím se reportem do 2 týdnů.
-    * **Čistý výnos (odhad):** Hrubý dividendový výnos očištěný o automatickou srážkovou daň (15 % pro USA/ČR, 25 % pro Německo, 0 % pro vybrané UK tituly jako BTI a SHEL).
-    
-    ### **📊 Scoring Matrix (Fundamenty)**
-    * **Score:** Celkové bodové ohodnocení (0–150+) na základě nastavených vah a pásem. Vyšší skóre = fundamentálně zdravější a levnější akcie.
-    * **Forward P/E vs P/E:** Pokud je Forward P/E výrazně nižší než současné P/E (Zelená), trh očekává růst zisků. Pokud je vyšší (Červená), očekává se pokles ziskovosti.
-    * **Dluh D/E:** Poměr dluhu k vlastnímu kapitálu. Hodnoty nad 120 % jsou červeně zvýrazněny jako zvýšené finanční riziko.
-    
-    ### **⚖️ Metody vnitřní hodnoty (IV)**
-    * **P1: Ziskový pilíř:** Kombinuje Grahamovo číslo, klasické cílové P/E a model RIM (Residual Income Model).
-    * **P2: Cashflow pilíř:** Využívá DCF (Discounted Cash Flow z volného cashflow) a DDM (Gordonův dividendový model).
-    * **P3: Majetkový pilíř:** Hodnotí akcii na základě tržeb (P/S) a účetní hodnoty aktiv (NAV).
-    """)
 
 filtered_data = [d for d in raw_data if filtr_kat == "Vše" or d["kat"] == filtr_kat]
 
-# --- 5. LOGIKA PRO STRÁNKY ---
+# --- 5. LOGIKA STRÁNEK S INTELIGENTNÍ ŠIROKOU LEGENDOU ---
 if not filtered_data:
     st.info(f"Pro filtr '{filtr_kat}' nebyly nalezeny žádné akcie.")
 else:
     if stranka == "Scoring Matrix":
+        st.subheader("🎯 Scoring Matrix")
+        
+        # --- 💡 DYNAMICKÁ LEGENDA PRO SCORING MATRIX ---
+        with st.expander("📖 Zobrazit vysvětlivky a legendu barev pro Scoring Matrix", expanded=False):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.markdown("**🎨 Barevné buňky**")
+                st.markdown("* 🟢 **Fwd P/E zelená:** Očekává se růst zisků (Fwd P/E je o >5 % nižší než P/E).")
+                st.markdown("* 🔴 **Fwd P/E červená:** Hrozí pokles zisků (Fwd P/E je o >5 % vyšší než P/E).")
+                st.markdown("* 🔴 **Dluh D/E červená:** Dluh přesahuje 120 % vlastního kapitálu.")
+            with col2:
+                st.markdown("**📈 Valuační a Růstové metriky**")
+                st.markdown("* **Score:** Výsledné ohodnocení (gradient od červené po zelenou). Čím vyšší skóre, tím je akcie zdravější/levnější.")
+                st.markdown("* **Změna:** Denní pohyb akcie (zelená = růst, červená = pokles).")
+                st.markdown("* **Potenciál:** Vzdálenost k průměrnému Target Price analytiků z Wall Street.")
+            with col3:
+                st.markdown("**⚙️ Výpočet a Váhy**")
+                st.markdown("* **P/E penalizace:** Pokud Forward P/E roste oproti Trailing P/E, model automaticky krátí body za valuaci o 50 % a uděluje trestné body.")
+                st.markdown("* **3Y Sloupce:** Ukazují tříletý historický průměr pro odhalení cyklických výkyvů.")
+
+        # Nastavení strategií v sidebaru
+        st.sidebar.markdown("### ⚙️ Nastavení matice")
         strategie = st.sidebar.selectbox("Strategie:", ["Vlastní", "🛡️ Konzervativní", "⚖️ Vyvážená", "🚀 Růstová"])
-        zobrazit_body = st.sidebar.checkbox("⚠️ Detailní body", value=False)
         
         h_pe, b_pe = [12, 18, 25, 40, 999], [20, 15, 5, 0, -15]
         h_ps, b_ps = [1.5, 3, 6, 10, 999], [15, 10, 5, 0, -10]
@@ -216,7 +217,6 @@ else:
         p_div = vytvor_p("Div. výnos", "div", [2, 4, 6, 8, 999], [5, 12, 15, 10, 5])
         p_pot = vytvor_p("Potenciál", "pot", [8, 18, 28, 45, 999], [0, 10, 18, 25, 35])
 
-        st.sidebar.divider()
         w_val = st.sidebar.slider("Váha: Valuace", 0.5, 3.0, 1.0)
         w_prof = st.sidebar.slider("Váha: Rentabilita", 0.5, 3.0, 1.0)
         w_growth = st.sidebar.slider("Váha: Růst", 0.5, 3.0, 1.0)
@@ -279,8 +279,8 @@ else:
                 s = [''] * len(r)
                 if r.get("Type") == "Points": return ['color: #888; font-style: italic; background-color: #f8f9fa'] * len(r)
                 for i, col in enumerate(r.index):
-                    # --- FIX: Zde se nastavuje výrazná tmavě modrá barva pro živou cenu (TC) ---
-                    if col == "Cena": s[i] = "font-weight: bold; color: #004080; background-color: #f0f7ff;"
+                    # Obarvení tržní ceny (TC) na elegantní tmavě modrou se světle modrým pozadím
+                    if col == "Cena": s[i] = "font-weight: bold; color: #004080; background-color: #e3f2fd;"
                     if col == "Změna": 
                         s[i] = f"color: {'#1b5e20' if r['Změna']>0.01 else ('#b71c1c' if r['Změna']<-0.01 else '#444')}; font-weight: bold;"
                     if col == "Forward P/E" and r.get("P/E", 0) > 0 and r.get("Forward P/E", 0) > 0:
@@ -298,6 +298,24 @@ else:
             st.dataframe(df.style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn", vmin=0, vmax=150), use_container_width=True, hide_index=True, height=750, column_order=["Titul", "Cena", "Změna"] + mapping_keys + ["Score"], column_config=nastaveni_sloupcu)
 
     elif stranka == "Vnitřní hodnota (IV)":
+        st.subheader("⚖️ Vnitřní hodnota (Intrinsic Value)")
+        
+        # --- 💡 DYNAMICKÁ LEGENDA PRO VNITŘNÍ HODNOTU ---
+        with st.expander("📖 Zobrazit vysvětlivky a legendu barev pro Vnitřní Hodnotu", expanded=False):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.markdown("**🎨 Barevné řádky**")
+                st.markdown("* 🟢 **Zelené pozadí titulu:** Akcie obchoduje pod svou férovou hodnotou (má kladný Potenciál %).")
+                st.markdown("* 🔴 **Červené pozadí titulu:** Akcie je nadhodnocená (obchoduje dráž než férová cena).")
+            with col2:
+                st.markdown("**⚖️ Tři pilíře ocenění**")
+                st.markdown("* **P1 (Zisk):** Výpočet postavený na ziscích na akcii (EPS). Bere nejvyšší z Grahamova vzorce, cílového P/E a RIM.")
+                st.markdown("* **P2 (Cashflow):** Ocenění skrze Free Cash Flow (DCF model) a stabilní dividendy (Gordonův model).")
+                st.markdown("* **P3 (Majetek):** Konzervativní ocenění dle tržeb (P/S) a účetní hodnoty čistých aktiv (NAV).")
+            with col3:
+                st.markdown("**🛠️ Výpočet Férové ceny**")
+                st.markdown("* **Vážený průměr:** Výsledná férová cena je vážený průměr všech 3 pilířů. Váhy si můžete sami nastavit v levém panelu.")
+
         show_details = st.sidebar.toggle("🔓 Zobrazit detailní metody", value=False)
         with st.sidebar.expander("⚖️ Váhy pilířů", expanded=False):
             w1 = st.slider("Váha P1 (Ziskové)", 0, 100, 33)
@@ -351,6 +369,26 @@ else:
             st.dataframe(df_iv.style.apply(apply_all_styles, axis=1).format({"Cena": "{:.2f}"}), use_container_width=True, hide_index=True, height=850, column_config={"Potenciál %": st.column_config.NumberColumn("Potenciál %", format="%.1f%%")})
 
     else:
+        st.subheader("📅 Kalendář & Technická analýza")
+        
+        # --- 💡 DYNAMICKÁ LEGENDA PRO KALENDÁŘ & TECHNIKU ---
+        with st.expander("📖 Zobrazit vysvětlivky a legendu barev pro Kalendář & Techniku", expanded=False):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.markdown("**🛡️ Indikátor Vzdálenost od MA50**")
+                st.markdown("Ukazuje odchylku ceny od 50denního klouzavého průměru (robustní náhrada RSI):")
+                st.markdown("* 🟢 **Méně než -10 % (Zelená):** Přeprodáno. Akcie klesla hluboko pod průměr, historicky nákupní zóna.")
+                st.markdown("* 🔴 **Více než +15 % (Červená):** Překoupeno. Hrozí krátkodobé vyčerpání růstu.")
+            with col2:
+                st.markdown("**⚠️ Kvartální Výsledky (Earnings)**")
+                st.markdown("* **Dní do:** Odpočet do vyhlášení zpráv.")
+                st.markdown("* 🔴 **Záporné číslo / Červená:** Výsledky vyšly dnes nebo včera.")
+                st.markdown("* 🟡 **Méně než 14 dnů (Žlutá):** Výsledky se blíží, zvýšené riziko volatility.")
+            with col3:
+                st.markdown("**💶 Daně a Dividendy**")
+                st.markdown("* **Čistý výnos (odhad):** Hrubý dividendový výnos automaticky očištěný o srážkovou daň podle země původu (USA/ČR 15 %, Německo 25 %, UK jako BTI/SHEL mají 0 %).")
+                st.markdown("* **Doporučení:** Konsenzus analytiků (Zelená = Buy/Strong Buy).")
+
         c_rows, today = [], date.today()
         for item in filtered_data:
             inf = item["inf"]; ticker = item["t"]; days_to = safe_date_diff(item["earn"], today)
