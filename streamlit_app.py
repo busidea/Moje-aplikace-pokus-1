@@ -114,7 +114,6 @@ def fetch_all_stock_data(tickers):
     return stock_data
 
 # --- INICIALIZACE DAT ---
-# Opraveno volání funkce nacti_seznam bez překlepu v parametru
 df_raw_list = nacti_seznam(ODKAZ_NA_TABULKU)
 
 if df_raw_list.empty:
@@ -142,7 +141,44 @@ for row in df_raw_list.to_dict('records'):
         "gm_3y": fund["gm_3y"], "nm_3y": fund["nm_3y"], "roe_3y": fund["roe_3y"]
     })
 
-# --- NASTAVENÍ STRATEGIÍ V SIDEBARU ---
+# --- 4. SIDEBAR MENU ---
+st.sidebar.markdown("### **📊 Hlavní navigace**")
+stranka = st.sidebar.radio("Zobrazení:", ["Scoring Matrix", "Vnitřní hodnota (IV)", "Kalendář & Technika"], label_visibility="collapsed")
+
+zobrazit_body = False
+if stranka == "Scoring Matrix":
+    st.sidebar.divider()
+    zobrazit_body = st.sidebar.checkbox("⚠️ Detailní přidělené body", value=False)
+
+st.sidebar.divider()
+filtr_kat = st.sidebar.selectbox("Filtr kategorií:", ["Portfolio", "Sledované", "Vše"], index=0)
+
+filtered_data = [d for d in raw_data if filtr_kat == "Vše" or d["kat"] == filtr_kat]
+
+# --- 5. LOGIKA STRÁNEK ---
+if not filtered_data:
+    st.info(f"Pro filtr '{filtr_kat}' nebyly nalezeny žádné akcie.")
+else:
+    if stranka == "Scoring Matrix":
+        # --- 💡 LEGENDA SE SPOJENÝM NÁZVEM ---
+        with st.expander("📊 Scoring Matrix | Legenda", expanded=False):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.markdown("**🎨 Barevné buňky**")
+                st.markdown("* 🟢 **Fwd P/E zelená:** Očekává se růst zisků (Fwd P/E je o >5 % nižší než P/E).")
+                st.markdown("* 🔴 **Fwd P/E červená:** Hrozí pokles zisků (Fwd P/E je o >5 % vyšší než P/E).")
+                st.markdown("* 🔴 **Dluh D/E červená:** Dluh přesahuje 120 % vlastního kapitálu.")
+            with col2:
+                st.markdown("**📈 Valuační a Růstové metriky**")
+                st.markdown("* **Score:** Celkové ohodnocení (od červené po zelenou). Vyšší skóre = lepší fundament/cena.")
+                st.markdown("* **Změna:** Denní pohyb akcie (zelená = růst, červená = pokles).")
+                st.markdown("* **Potenciál:** Vzdálenost k průměrnému cíli (Target Price) analytiků.")
+            with col3:
+                st.markdown("**⚙️ Výpočet a Váhy**")
+                st.markdown("* **P/E penalizace:** Pokud Forward P/E roste oproti Trailing P/E, model krátí body za valuaci o 50 %.")
+                st.markdown("* **3Y Sloupce:** Ukazují tříletý historický průměr pro zachycení cykličnosti.")
+
+        # --- NASTAVENÍ STRATEGIÍ V SIDEBARU ---
         st.sidebar.markdown("### ⚙️ Nastavení matice")
         strategie = st.sidebar.selectbox("Strategie:", ["Vlastní", "🛡️ Konzervativní", "⚖️ Vyvážená", "🚀 Růstová"])
         
@@ -164,13 +200,13 @@ for row in df_raw_list.to_dict('records'):
         if strategie == "🛡️ Konzervativní":
             h_pe, b_pe = [10, 15, 20, 30, 999], [25, 15, 0, -10, -30]
             h_ps, b_ps = [1.0, 2, 4, 7, 999], [20, 10, 0, -10, -20]
-            h_deb, b_deb = [20, 50, 90, 150, 999], [25, 15, 5, -10, -50] # Přísnější na dluh
+            h_deb, b_deb = [20, 50, 90, 150, 999], [25, 15, 5, -10, -50]
         elif strategie == "🚀 Růstová":
             h_pe, b_pe = [20, 35, 50, 80, 999], [15, 25, 15, 5, -5]
             h_ps, b_ps = [3, 6, 12, 20, 999], [10, 15, 20, 5, -10]
-            h_rev, b_rev = [5, 15, 30, 50, 999], [-15, 10, 20, 35, 50] # Vyšší nároky na růst tržeb
+            h_rev, b_rev = [5, 15, 30, 50, 999], [-15, 10, 20, 35, 50]
 
-        # Helper funkce pro vykreslení ručního nastavení (zobrazí se jen u "Vlastní")
+        # Helper funkce pro nastavení (zobrazí se pouze u "Vlastní")
         def vytvor_p(nazev, zk, def_h, def_b):
             d = []
             if strategie == "Vlastní":
@@ -181,10 +217,10 @@ for row in df_raw_list.to_dict('records'):
                         b = c2.number_input(f"Body", value=int(def_b[i]), key=f"{zk}_{i}b")
                         d.append({"h": h, "b": b})
             else:
-                # Pokud není zvoleno "Vlastní", vygenerujeme pole přímo z přednastavených proměnných
                 for i in range(5):
                     d.append({"h": def_h[i], "b": def_b[i]})
             return d
+
         # Generování výsledných pásem pro výpočet
         p_pe = vytvor_p("P/E", "pe", h_pe, b_pe)
         p_ps = vytvor_p("P/S", "ps", h_ps, b_ps)
@@ -201,21 +237,6 @@ for row in df_raw_list.to_dict('records'):
         p_deb = vytvor_p("Dluh D/E", "deb", h_deb, b_deb)
         p_div = vytvor_p("Div. výnos", "div", h_div, b_div)
         p_pot = vytvor_p("Potenciál", "pot", h_pot, b_pot)
-        p_pe = vytvor_p("P/E", "pe", h_pe, b_pe)
-        p_ps = vytvor_p("P/S", "ps", h_ps, b_ps)
-        p_pb = vytvor_p("P/B", "pb", [1, 2.5, 4, 8, 999], [10, 7, 3, 0, -5])
-        p_pfcf = vytvor_p("P/FCF", "pfcf", [12, 20, 35, 50, 999], [20, 12, 5, 0, -10])
-        p_gm = vytvor_p("H-Marže", "gm", h_gm, b_gm)
-        p_gm_3y = vytvor_p("H-Marže 3Y", "gm3y", h_gm, b_gm)
-        p_nm = vytvor_p("Č-Marže", "nm", h_nm, b_nm)
-        p_nm_3y = vytvor_p("Č-Marže 3Y", "nm3y", h_nm, b_nm)
-        p_roe = vytvor_p("ROE", "roe", h_roe, b_roe)
-        p_roe_3y = vytvor_p("ROE 3Y", "roe3y", h_roe, b_roe)
-        p_rev = vytvor_p("Tržby y/y", "rev", [0, 10, 20, 35, 999], [-10, 8, 15, 25, 35])
-        p_eps = vytvor_p("Zisk y/y", "eps", [0, 10, 25, 45, 999], [-15, 10, 20, 28, 40])
-        p_deb = vytvor_p("Dluh D/E", "deb", [40, 80, 120, 200, 999], [20, 10, 0, -15, -40])
-        p_div = vytvor_p("Div. výnos", "div", [2, 4, 6, 8, 999], [5, 12, 15, 10, 5])
-        p_pot = vytvor_p("Potenciál", "pot", [8, 18, 28, 45, 999], [0, 10, 18, 25, 35])
 
         w_val = st.sidebar.slider("Váha: Valuace", 0.5, 3.0, 1.0)
         w_prof = st.sidebar.slider("Váha: Rentabilita", 0.5, 3.0, 1.0)
@@ -340,7 +361,7 @@ for row in df_raw_list.to_dict('records'):
             v_ddm = (div * (1 + g_pct)) / (re_pct - g_pct) if (div > 0 and re_pct > g_pct) else 0
             val_p2 = max(v_fcf, v_ddm)
             v_ps = (rev / shares) * target_ps if (shares > 0 and rev > 0) else 0
-            v_nav = bvps = bvps if bvps > 0 else 0
+            v_nav = bvps if bvps > 0 else 0
             val_p3 = max(v_ps, v_nav)
 
             ws = [w1, w2, w3]; vals = [val_p1, val_p2, val_p3]
