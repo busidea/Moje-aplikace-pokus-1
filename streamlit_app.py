@@ -6,10 +6,10 @@ from datetime import datetime, date
 # --- 1. KONFIGURACE A STYL ---
 st.set_page_config(page_title="Investiční Terminál", layout="wide")
 
-# Polazení horního prostoru – padding-top 2.2rem pro posun o cca 3-4 mm dolů
 st.markdown("""
     <style>
     .block-container { padding-top: 2.2rem; padding-bottom: 0rem; }
+    .stExpander { margin-top: 4px !important; }
     [data-testid="stDataFrame"] td { text-align: right !important; }
     [data-testid="stDataFrame"] [role="gridcell"]:first-child { font-weight: bold !important; color: #004080 !important; }
     #MainMenu {visibility: hidden;} footer {visibility: hidden;}
@@ -160,7 +160,7 @@ if not filtered_data:
     st.info(f"Pro filtr '{filtr_kat}' nebyly nalezeny žádné akcie.")
 else:
     if stranka == "Scoring Matrix":
-        # --- 💡 LEGENDA SE SPOJENÝM NÁZVEM ---
+        # --- 💡 LEGENDA PRO MATICI ---
         with st.expander("📊 Scoring Matrix | Legenda", expanded=False):
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -301,6 +301,7 @@ else:
                 if r.get("Type") == "Points": return ['color: #888; font-style: italic; background-color: #f8f9fa'] * len(r)
                 for i, col in enumerate(r.index):
                     if col == "Cena": s[i] = "font-weight: bold; color: #004080; background-color: #e3f2fd;"
+                    if col == "Score": s[i] = "font-weight: bold; color: #1b5e20; background-color: #e8f5e9;"
                     if col == "Změna": 
                         s[i] = f"color: {'#1b5e20' if r['Změna']>0.01 else ('#b71c1c' if r['Změna']<-0.01 else '#444')}; font-weight: bold;"
                     if col == "Forward P/E" and r.get("P/E", 0) > 0 and r.get("Forward P/E", 0) > 0:
@@ -318,20 +319,22 @@ else:
             st.dataframe(df.style.apply(style_matrix, axis=1).background_gradient(subset=["Score"], cmap="RdYlGn", vmin=0, vmax=150), use_container_width=True, hide_index=True, height=750, column_order=["Titul", "Cena", "Změna"] + mapping_keys + ["Score"], column_config=nastaveni_sloupcu)
 
     elif stranka == "Vnitřní hodnota (IV)":
-        # --- 💡 LEGENDA SE SPOJENÝM NÁZVEM ---
-        with st.expander("⚖️ Vnitřní hodnota (IV) | Legenda", expanded=False):
+        # --- 💡 ENCYKLOPEDIE METOD EXKLUZIVNĚ ZDE ---
+        with st.expander("⚖️ Vnitřní hodnota (IV) | Popis oceňovacích metod", expanded=False):
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.markdown("**🎨 Barevné řádky**")
-                st.markdown("* 🟢 **Zelené pozadí:** Akcie je podhodnocená (obchoduje pod férovou cenou).")
-                st.markdown("* 🔴 **Červené pozadí:** Akcie je nadhodnocená (má záporný potenciál).")
+                st.markdown("**📈 Pilíř P1: Ziskové modely**")
+                st.markdown("* **Grahamův vzorec:** Klasický model B. Grahama upravený o aktuální výnosy dluhopisů ($Y$). Počítá férové P/E na základě očekávaného růstu.")
+                st.markdown("* **Cílové P/E:** Kalkulace konzervativního násobku čistých zisků na akcii ($EPS \\times \\text{Cílové P/E}$).")
+                st.markdown("* **RIM (Residual Income Model):** Oceňuje akcii jako součet účetní hodnoty a budoucích nadmírných zisků, které firma dokáže vygenerovat nad rámec požadované výnosnosti kapitálu ($Re$).")
             with col2:
-                st.markdown("**⚖️ Tři pilíře ocenění**")
-                st.markdown("* **P1 (Zisk):** EPS modely (Grahamův vzorec, cílové P/E, RIM).")
-                st.markdown("* **P2 (Cashflow):** Modely DCF (Free Cash Flow) a Gordonův dividendový model.")
+                st.markdown("**💸 Pilíř P2: Cashflow modely**")
+                st.markdown("* **DCF (Free Cash Flow):** Diskontovaný model volného peněžního toku. Nejuznávanější metoda pracující s hotovostí, kterou firma skutečně vygeneruje pro akcionáře po odečtení kapitálových nákladů.")
+                st.markdown("* **DDM (Gordonův dividendový model):** Oceňuje firmu na základě současné hodnoty jejích budoucích dividend stabilně rostoucích o tempo $g$. Použitelné výhradně pro dividendové plátce.")
             with col3:
-                st.markdown("**🛠️ Výpočet Férové ceny**")
-                st.markdown("* **Vážený průměr:** Výsledná férová cena je kombinací všech 3 pilířů. Váhy lze upravit v levém panelu.")
+                st.markdown("**🏢 Pilíř P3: Majetkové modely**")
+                st.markdown("* **Cílové P/S:** Alternativní ocenění přes násobek tržeb ($P/S$). Klíčové pro firmy, které dočasně neoptimalizují čistý zisk, ale rychle škálují tržby.")
+                st.markdown("* **NAV (Net Asset Value):** Čistá účetní hodnota připadající na jednu akcii ($BVPS$). Reprezentuje tvrdé dno hodnoty společnosti při teoretické likvidaci.")
 
         show_details = st.sidebar.toggle("🔓 Zobrazit detailní metody", value=False)
         with st.sidebar.expander("⚖️ Váhy pilířů", expanded=False):
@@ -386,13 +389,13 @@ else:
             st.dataframe(df_iv.style.apply(apply_all_styles, axis=1).format({"Cena": "{:.2f}"}), use_container_width=True, hide_index=True, height=850, column_config={"Potenciál %": st.column_config.NumberColumn("Potenciál %", format="%.1f%%")})
 
     else:
-        # --- 💡 LEGENDA SE SPOJENÝM NÁZVEM ---
+        # --- 💡 LEGENDA PRO KALENDÁŘ ---
         with st.expander("📅 Kalendář & Technika | Legenda", expanded=False):
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.markdown("**🛡️ Indikátor Vzdálenost od MA50**")
                 st.markdown("Procentuální odchylka od 50denního klouzavého průměru:")
-                st.markdown("* 🟢 **Méně než -10 %:** Přeprodáno (nákupní zóna).")
+                st.markdown("* 🟢 **Ménž než -10 %:** Přeprodáno (nákupní zóna).")
                 st.markdown("* 🔴 **Více než +15 %:** Překoupeno (riziko korekce).")
             with col2:
                 st.markdown("**⚠️ Výsledky (Earnings)**")
