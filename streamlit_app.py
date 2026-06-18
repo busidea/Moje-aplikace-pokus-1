@@ -41,8 +41,12 @@ ODKAZ_NA_TABULKU = "https://docs.google.com/spreadsheets/d/1q90ZZ4EjYCqyrReOgm6j
 def nacti_seznam(odkaz):
     try:
         df = pd.read_csv(odkaz.replace('/edit?usp=sharing', '/export?format=csv'))
+        # ODSTRANĚNÍ MEZER Z NÁZVŮ SLOUPCŮ
         df.columns = [c.strip() for c in df.columns]
         df['Ticker'] = df['Ticker'].astype(str).str.upper().str.strip()
+        # POJIŠTĚNÍ PROTI MEZERÁM V KATEGORIÍCH
+        if 'Kategorie' in df.columns:
+            df['Kategorie'] = df['Kategorie'].astype(str).str.strip()
         return df
     except Exception as e:
         st.error(f"❌ Chyba při stahování Google tabulky: {e}")
@@ -135,9 +139,12 @@ for row in df_raw_list.to_dict('records'):
     if t not in data_trhu or not data_trhu[t]: continue
     fund = data_trhu[t]
     
+    # BEZPEČNÉ OŘEZÁNÍ TEXTU KATEGORIE PRO KAŽDÝ ŘÁDEK
+    kat_hodnota = str(row.get('Kategorie', '')).strip()
+    
     raw_data.append({
         "t": t, "inf": fund, "vzdalenost_ma50": fund["vzdalenost_ma50"], "cena_zive": fund["cena_zive"], "zmena_zive": fund["zmena_zive"],
-        "kat": str(row.get('Kategorie')), "earn": row.get('Earnings Day'), "name": fund["name"],
+        "kat": kat_hodnota, "earn": row.get('Earnings Day'), "name": fund["name"],
         "gm_3y": fund["gm_3y"], "nm_3y": fund["nm_3y"], "roe_3y": fund["roe_3y"]
     })
 
@@ -153,7 +160,8 @@ if stranka == "Scoring Matrix":
 st.sidebar.divider()
 filtr_kat = st.sidebar.selectbox("Filtr kategorií:", ["Portfolio", "Sledované", "Vše"], index=0)
 
-filtered_data = [d for d in raw_data if filtr_kat == "Vše" or d["kat"] == filtr_kat]
+# FILTROVÁNÍ ODOLNÉ VŮČI VELKÝM/MALÝM PÍSMENŮM A MEZERÁM
+filtered_data = [d for d in raw_data if filtr_kat == "Vše" or d["kat"].lower() == filtr_kat.lower()]
 
 # --- 5. LOGIKA STRÁNEK ---
 if not filtered_data:
