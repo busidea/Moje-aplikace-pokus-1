@@ -419,3 +419,19 @@ else:
                 return s
                 
             st.dataframe(df_c.style.apply(style_calendar, axis=1), use_container_width=True, hide_index=True, height=750, column_config={"Div. výnos (hrubý)": st.column_config.NumberColumn("Div. výnos (hrubý)", format="%.2f%%"), "Čistý výnos (odhad)": st.column_config.NumberColumn("Čistý výnos (odhad)", format="%.2f%%"), "Vzdálenost od MA50": st.column_config.NumberColumn("Vzdálenost od MA50", format="%.1f%%")}, column_order=["Titul", "Ticker", "Earnings", "Dní do", "Dividenda", "Div. výnos (hrubý)", "Čistý výnos (odhad)", "Ex-Date", "Doporučení", "Vzdálenost od MA50"])
+            # --- 🛠️ DOČASNÁ DIAGNOSTIKA (PAK SMAŽEME) ---
+st.write("---")
+st.subheader("🔍 Diagnostický panel")
+col_d1, col_d2 = st.columns(2)
+
+with col_d1:
+    st.write("1. Načtené tickery z Google tabulky:")
+    st.write(vsechny_tickery if 'vsechny_tickery' in locals() else "Tickery nenačteny!")
+
+with col_d2:
+    st.write("2. Kolik tickerů vrátilo data z Yahoo:")
+    if 'data_trhu' in locals():
+        st.write(f"Úspěšně staženo: {len(data_trhu)} z {len(vsechny_tickery)}")
+        st.write("Stažené tickery:", list(data_trhu.keys()))
+    else:
+        st.write("Data z trhu vůbec neexistují.")
