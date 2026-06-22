@@ -53,40 +53,38 @@ def nacti_seznam(odkaz):
     except:
         return pd.DataFrame()
 
-# --- 🧠 BEZPEČNÉ STAHOVÁNÍ S ROZDĚLENÝMI PRŮMĚRY A OCHRANOU PROTI BANU ---
+# --- 🧠 BEZPEČNÉ STAHOVÁNÍ BEZ RIZIKA SELHÁNÍ TRENDŮ ---
 @st.cache_data(ttl=1800)
 def fetch_all_stock_data(tickers):
     stock_data = {}
     for t in tickers:
         try:
-            time.sleep(0.25) # 🛡️ Prevence proti zablokování od Yahoo Finance
+            time.sleep(0.25) # 🛡️ Ochrana proti banu
             tk = yf.Ticker(t)
-            inf = tk.info if tk.info else {}
+            inf = tk.info
             
-            if not inf: 
+            if not inf or not isinstance(inf, dict): 
                 continue
                 
             c_gm = safe_float(inf.get('grossMargins', 0)) * 100
             c_nm = safe_float(inf.get('profitMargins', 0)) * 100
             c_roe = safe_float(inf.get('returnOnEquity', 0)) * 100
             
-            rev_growth = safe_float(inf.get('revenueGrowth', 0))
-            eps_growth = safe_float(inf.get('earningsGrowth', 0))
+            rev_growth = safe_float(inf.get('revenueGrowth', 0)) * 100
+            eps_growth = safe_float(inf.get('earningsGrowth', 0)) * 100
 
-            # ⚙️ REKONSTRUKCE TRENDŮ (Průměry vs Současnost)
-            trend_faktor = 1 / (1 + eps_growth) if eps_growth != 0 else 1.0
-            if trend_faktor < 0.4 or trend_faktor > 1.6: trend_faktor = 1.0
-            
-            roe_avg = c_roe * trend_faktor
-            if roe_avg == c_roe and eps_growth != 0:
-                roe_avg = c_roe * (1 - (eps_growth * 2))
-                
-            # Rekonstrukce marží (3Y odhad) pomocí poměru růstu tržeb a zisků
-            margin_trend = 1 + (rev_growth - eps_growth)
-            if margin_trend < 0.5 or margin_trend > 1.5: margin_trend = 1.0
-            
-            gm_avg = c_gm * margin_trend
-            nm_avg = c_nm * margin_trend
+            # 🛡️ STABILNÍ HISTORICKÉ ODHADY (Pokud selže výpočet, použije se aktuální stav)
+            gm_avg = c_gm
+            nm_avg = c_nm
+            roe_avg = c_roe
+
+            # Bezpečný pokus o simulaci historického trendu
+            if eps_growth != 0:
+                if -50 < eps_growth < 100: # Jen pro rozumné hodnoty růstu
+                    roe_avg = c_roe * (1 - (eps_growth / 100) * 0.3)
+                    margin_trend = 1 - ((rev_growth - eps_growth) / 100) * 0.1
+                    gm_avg = c_gm * margin_trend
+                    nm_avg = c_nm * margin_trend
 
             cena_act = safe_float(inf.get('currentPrice', inf.get('regularMarketPrice', inf.get('previousClose', 0))))
             cena_prev = safe_float(inf.get('previousClose', cena_act))
@@ -107,14 +105,14 @@ def fetch_all_stock_data(tickers):
                 "marketCap": safe_float(inf.get('marketCap')), 
                 "freeCashflow": safe_float(inf.get('freeCashflow')),
                 "grossMargins": c_gm, "gm_3y": gm_avg, "profitMargins": c_nm, "nm_3y": nm_avg, "returnOnEquity": c_roe, "roe_3y": roe_avg,
-                "revenueGrowth": rev_growth * 100, "earningsGrowth": eps_growth * 100,
+                "revenueGrowth": rev_growth, "earningsGrowth": eps_growth,
                 "debtToEquity": safe_float(inf.get('debtToEquity')), "dividendYield": safe_float(inf.get('dividendYield')),
                 "dividendRate": safe_float(inf.get('dividendRate')), "currency": inf.get('currency', 'USD'),
                 "targetMeanPrice": safe_float(inf.get('targetMeanPrice')), "exDividendDate": inf.get('exDividendDate'), "recommendationKey": inf.get('recommendationKey', '-'),
                 "trailingEps": safe_float(inf.get('trailingEps')), "bookValue": safe_float(inf.get('bookValue')), "totalRevenue": safe_float(inf.get('totalRevenue')), "sharesOutstanding": safe_float(inf.get('sharesOutstanding'))
             }
         except:
-            stock_data[t] = {}
+            pass # Pokud jedna akcie selže, cyklus pokračuje dál a neshodí zbytek
     return stock_data
 
 # --- INICIALIZACE VSTUPŮ ---
@@ -129,7 +127,7 @@ vsechny_tickery = [str(t).strip().upper() for t in df_raw_list['Ticker'].dropna(
 if not vsechny_tickery:
     st.stop()
 
-with st.spinner("🚀 Stahuji data z trhů a analyzuji historické trendy..."):
+with St.spinner("🚀 Synchronizuji data z trhů..."):
     data_trhu = fetch_all_stock_data(vsechny_tickery)
 
 raw_data = []
@@ -161,17 +159,17 @@ filtered_data = [d for d in raw_data if filtr_kat == "Vše" or d["kat"].lower() 
 
 # --- 5. LOGIKA ZOBRAZENÍ STRÁNEK ---
 if not filtered_data:
-    st.info(f"Pro filtr '{filtr_kat}' nebyly nalezeny žádné akcie. Pokud máte dočasný ban od Yahoo, data se během chvíle načtou znovu.")
+    st.info(f"V kategorii '{filtr_kat}' momentálně nejsou žádná data. Přepněte filtr na 'Vše' nebo zkontrolujte sloupce v Google tabulce.")
 else:
     if stranka == "Scoring Matrix":
         with st.expander("📊 Scoring Matrix | Legenda k trendům", expanded=False):
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown("**📉 Sloupce s označením (Avg)**")
-                st.markdown("Zobrazují historický dlouhodobý standard firmy (ROE 5Y, Marže 3Y).")
+                st.markdown("Zobrazují historickou základnu firmy (ROE a Marže).")
             with col2:
                 st.markdown("**🧠 Jak funguje trendový bodový bonus?**")
-                st.markdown("Model dává **bonusové body**, pokud je aktuální efektivita VYŠŠÍ než průměr, a **strhává body**, pokud klesá pod průměr.")
+                st.markdown("Model dává **bonusové body**, pokud se aktuální stav zlepšuje oproti průměru, a **strhává**, pokud klesá.")
 
         st.sidebar.markdown("### ⚙️ Nastavení matice")
         strategie = st.sidebar.selectbox("Strategie:", ["Vlastní", "⚖️ Vyvážená", "🛡️ Konzervativní", "🚀 Růstová"], index=1)
