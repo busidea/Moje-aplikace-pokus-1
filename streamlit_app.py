@@ -53,7 +53,7 @@ def nacti_seznam(odkaz):
     except:
         return pd.DataFrame()
 
-# --- 🧠 ODOLNÉ STAHOVÁNÍ DAT (HLAVNÍ FIX PROTI PÁDŮM) ---
+# --- 🧠 ODOLNÉ STAHOVÁNÍ DAT ---
 @st.cache_data(ttl=1800)
 def fetch_all_stock_data(tickers):
     stock_data = {}
@@ -121,7 +121,7 @@ def fetch_all_stock_data(tickers):
             except: pass
     except: pass
 
-    # 2. Pokus: Sběr chybějících tickerů po jednom (Záchranná síť)
+    # 2. Pokus: Sběr chybějících tickerů po jednom
     for t in tickers:
         if t not in stock_data:
             try:
@@ -305,22 +305,32 @@ else:
 
         df = pd.DataFrame(m_rows)
         if not df.empty:
-            # 🚀 ČISTÉ ABECEDNÍ ŘAZENÍ (Dvojice Titul + Body zůstanou spolu)
             df = df.sort_values(by="SortKey").drop(columns=["SortKey"])
             
+            # --- NOVÝ VYLAZENÝ VIZUÁLNÍ STYL MATICE ---
             def style_matrix(r):
                 s = [''] * len(r)
                 if r.get("Type") == "Points": return ['color: #888; font-style: italic; background-color: #f8f9fa'] * len(r)
+                
                 for i, col in enumerate(r.index):
                     if col == "Cena": s[i] = "font-weight: bold; color: #004080; background-color: #e3f2fd;"
                     if col == "Score": s[i] = "font-weight: bold; color: #1b5e20; background-color: #e8f5e9;"
+                    
                     if col == "Změna": 
                         s[i] = f"color: {'#1b5e20' if r['Změna']>0.01 else ('#b71c1c' if r['Změna']<-0.01 else '#444')}; font-weight: bold;"
                     
+                    # 💡 PODBARVENÍ BUŇKY: Aktuální živé hodnoty porovnávané s průměrem (Avg)
+                    if col in ["H-Marže", "Č-Marže", "ROE"]:
+                        avg_col = f"{col} (Avg)"
+                        if avg_col in r.index:
+                            if r[col] > r[avg_col]: 
+                                s[i] = 'background-color: #e8f5e9; color: #1b5e20; font-weight: bold;' # Jemná zelená
+                            elif r[col] < r[avg_col]: 
+                                s[i] = 'background-color: #ffebee; color: #b71c1c; font-weight: bold;' # Jemná červená
+
+                    # Průměry zůstanou čistě jako neutrální šedé referenční měřítko
                     if col in ["H-Marže (Avg)", "Č-Marže (Avg)", "ROE (Avg)"]:
-                        orig_col = col.replace(" (Avg)", "")
-                        if r[orig_col] > r[col]: s[i] = 'color: #1b5e20; font-weight: bold;'
-                        elif r[orig_col] < r[col]: s[i] = 'color: #b71c1c; font-weight: bold;'
+                        s[i] = 'color: #666; font-style: italic;'
 
                     if col == "Forward P/E" and r.get("P/E", 0) > 0 and r.get("Forward P/E", 0) > 0:
                         if r["Forward P/E"] / r["P/E"] > 1.05: s[i] = 'background-color: #ffebee; color: #b71c1c; font-weight: bold'
@@ -397,7 +407,6 @@ else:
 
         df_iv = pd.DataFrame(iv_results)
         if not df_iv.empty:
-            # 🚀 ABECEDNÍ ŘAZENÍ PRO STRÁNKU IV
             df_iv = df_iv.sort_values(by="Titul")
             
             def apply_all_styles(row):
@@ -430,7 +439,6 @@ else:
         
         df_c = pd.DataFrame(c_rows)
         if not df_c.empty:
-            # 🚀 ABECEDNÍ ŘAZENÍ PRO STRÁNKU KALENDÁŘE
             df_c = df_c.sort_values(by="Titul")
             
             def style_calendar(r):
