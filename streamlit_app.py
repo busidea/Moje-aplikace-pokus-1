@@ -53,75 +53,83 @@ def nacti_seznam(odkaz):
     except:
         return pd.DataFrame()
 
-# --- 🧠 BEZPEČNÉ HROMADNÉ STAHOVÁNÍ PROTI BANŮM ---
+# --- 🧠 ODOLNÉ STAHOVÁNÍ DAT (HLAVNÍ FIX PROTI PÁDŮM) ---
 @st.cache_data(ttl=1800)
 def fetch_all_stock_data(tickers):
     stock_data = {}
     if not tickers:
         return stock_data
         
+    def zpracuj_info(t, inf):
+        try:
+            if not inf or not isinstance(inf, dict): return None
+            
+            c_gm = safe_float(inf.get('grossMargins', 0)) * 100
+            c_nm = safe_float(inf.get('profitMargins', 0)) * 100
+            c_roe = safe_float(inf.get('returnOnEquity', 0)) * 100
+            
+            rev_growth = safe_float(inf.get('revenueGrowth', 0)) * 100
+            eps_growth = safe_float(inf.get('earningsGrowth', 0)) * 100
+
+            gm_avg = c_gm
+            nm_avg = c_nm
+            roe_avg = c_roe
+
+            if eps_growth != 0:
+                if -50 < eps_growth < 100:
+                    roe_avg = c_roe * (1 - (eps_growth / 100) * 0.3)
+                    margin_trend = 1 - ((rev_growth - eps_growth) / 100) * 0.1
+                    gm_avg = c_gm * margin_trend
+                    nm_avg = c_nm * margin_trend
+
+            cena_act = safe_float(inf.get('currentPrice', inf.get('regularMarketPrice', inf.get('previousClose', 0))))
+            cena_prev = safe_float(inf.get('previousClose', cena_act))
+            zmena = ((cena_act / cena_prev) - 1) * 100 if cena_prev > 0 else 0.0
+
+            ma50 = safe_float(inf.get('fiftyDayAverage', 0))
+            vzdalenost_ma50 = ((cena_act / ma50) - 1) * 100 if ma50 > 0 else 0.0
+
+            return {
+                "name": inf.get('longName', t) or t, 
+                "cena_zive": cena_act,
+                "zmena_zive": zmena,
+                "vzdalenost_ma50": vzdalenost_ma50,
+                "trailingPE": safe_float(inf.get('trailingPE')), 
+                "forwardPE": safe_float(inf.get('forwardPE')),
+                "priceToSales": safe_float(inf.get('priceToSalesTrailing12Months')), 
+                "priceToBook": safe_float(inf.get('priceToBook')),
+                "marketCap": safe_float(inf.get('marketCap')), 
+                "freeCashflow": safe_float(inf.get('freeCashflow')),
+                "grossMargins": c_gm, "gm_3y": gm_avg, "profitMargins": c_nm, "nm_3y": nm_avg, "returnOnEquity": c_roe, "roe_3y": roe_avg,
+                "revenueGrowth": rev_growth, "earningsGrowth": eps_growth,
+                "debtToEquity": safe_float(inf.get('debtToEquity')), "dividendYield": safe_float(inf.get('dividendYield')),
+                "dividendRate": safe_float(inf.get('dividendRate')), "currency": inf.get('currency', 'USD'),
+                "targetMeanPrice": safe_float(inf.get('targetMeanPrice')), "exDividendDate": inf.get('exDividendDate'), "recommendationKey": inf.get('recommendationKey', '-'),
+                "trailingEps": safe_float(inf.get('trailingEps')), "bookValue": safe_float(inf.get('bookValue')), "totalRevenue": safe_float(inf.get('totalRevenue')), "sharesOutstanding": safe_float(inf.get('sharesOutstanding'))
+            }
+        except:
+            return None
+
+    # 1. Pokus: Hromadný dotaz
     try:
-        # 🚀 Zásadní změna: Vyžádáme si info pro všechny tickery naráz v jednom balíku
         st_tickers = yf.Tickers(" ".join(tickers))
-        
         for t in tickers:
             try:
-                # Získání objektu z hromadného dotazu
                 tk = st_tickers.tickers[t]
-                inf = tk.info
+                res = zpracuj_info(t, tk.info)
+                if res: stock_data[t] = res
+            except: pass
+    except: pass
+
+    # 2. Pokus: Sběr chybějících tickerů po jednom (Záchranná síť)
+    for t in tickers:
+        if t not in stock_data:
+            try:
+                tk = yf.Ticker(t)
+                res = zpracuj_info(t, tk.info)
+                if res: stock_data[t] = res
+            except: pass
                 
-                if not inf or not isinstance(inf, dict) or 'longName' not in inf: 
-                    continue
-                    
-                c_gm = safe_float(inf.get('grossMargins', 0)) * 100
-                c_nm = safe_float(inf.get('profitMargins', 0)) * 100
-                c_roe = safe_float(inf.get('returnOnEquity', 0)) * 100
-                
-                rev_growth = safe_float(inf.get('revenueGrowth', 0)) * 100
-                eps_growth = safe_float(inf.get('earningsGrowth', 0)) * 100
-
-                # 🛡️ STABILNÍ HISTORICKÉ ODHADY
-                gm_avg = c_gm
-                nm_avg = c_nm
-                roe_avg = c_roe
-
-                if eps_growth != 0:
-                    if -50 < eps_growth < 100:
-                        roe_avg = c_roe * (1 - (eps_growth / 100) * 0.3)
-                        margin_trend = 1 - ((rev_growth - eps_growth) / 100) * 0.1
-                        gm_avg = c_gm * margin_trend
-                        nm_avg = c_nm * margin_trend
-
-                cena_act = safe_float(inf.get('currentPrice', inf.get('regularMarketPrice', inf.get('previousClose', 0))))
-                cena_prev = safe_float(inf.get('previousClose', cena_act))
-                zmena = ((cena_act / cena_prev) - 1) * 100 if cena_prev > 0 else 0.0
-
-                ma50 = safe_float(inf.get('fiftyDayAverage', 0))
-                vzdalenost_ma50 = ((cena_act / ma50) - 1) * 100 if ma50 > 0 else 0.0
-
-                stock_data[t] = {
-                    "name": inf.get('longName', t), 
-                    "cena_zive": cena_act,
-                    "zmena_zive": zmena,
-                    "vzdalenost_ma50": vzdalenost_ma50,
-                    "trailingPE": safe_float(inf.get('trailingPE')), 
-                    "forwardPE": safe_float(inf.get('forwardPE')),
-                    "priceToSales": safe_float(inf.get('priceToSalesTrailing12Months')), 
-                    "priceToBook": safe_float(inf.get('priceToBook')),
-                    "marketCap": safe_float(inf.get('marketCap')), 
-                    "freeCashflow": safe_float(inf.get('freeCashflow')),
-                    "grossMargins": c_gm, "gm_3y": gm_avg, "profitMargins": c_nm, "nm_3y": nm_avg, "returnOnEquity": c_roe, "roe_3y": roe_avg,
-                    "revenueGrowth": rev_growth, "earningsGrowth": eps_growth,
-                    "debtToEquity": safe_float(inf.get('debtToEquity')), "dividendYield": safe_float(inf.get('dividendYield')),
-                    "dividendRate": safe_float(inf.get('dividendRate')), "currency": inf.get('currency', 'USD'),
-                    "targetMeanPrice": safe_float(inf.get('targetMeanPrice')), "exDividendDate": inf.get('exDividendDate'), "recommendationKey": inf.get('recommendationKey', '-'),
-                    "trailingEps": safe_float(inf.get('trailingEps')), "bookValue": safe_float(inf.get('bookValue')), "totalRevenue": safe_float(inf.get('totalRevenue')), "sharesOutstanding": safe_float(inf.get('sharesOutstanding'))
-                }
-            except:
-                pass
-    except:
-        pass
-        
     return stock_data
 
 # --- INICIALIZACE VSTUPŮ ---
@@ -264,7 +272,7 @@ else:
             elif pe_tr > 0 and pe_fwd > 0 and (pe_fwd / pe_tr) < 0.95: adjusted_pe_points = base_pe_points * 1.25
 
             total = 0
-            row_p = {"Titul": f"    └ body ({t})", "Type": "Points"}
+            row_p = {"Titul": f"    └ body ({t})", "Type": "Points", "SortKey": name.lower() + "_zpoints"}
             p_map = {"P/E": p_pe, "P/S": p_ps, "P/B": p_pb, "P/FCF": p_pfcf, "H-Marže": p_gm, "Č-Marže": p_nm, "ROE": p_roe, "Tržby y/y": p_rev, "Zisk y/y": p_eps, "Dluh D/E": p_deb, "Div. výnos": p_div, "Potenciál": p_pot}
             w_map = {"v": w_val, "p": w_prof, "g": w_growth, "r": w_risk}
 
@@ -289,7 +297,7 @@ else:
                     total += b
                     row_p[sorted_k] = float(int(round(b)))
 
-            row_v = {"Titul": name, "Type": "Value", "Změna": raw_vals["Změna"], "Cena": raw_vals["Cena"], "Score": int(total)}
+            row_v = {"Titul": name, "Type": "Value", "SortKey": name.lower() + "_avalue", "Změna": raw_vals["Změna"], "Cena": raw_vals["Cena"], "Score": int(total)}
             for sorted_k in mapping_keys: row_v[sorted_k] = raw_vals[sorted_k]
             
             m_rows.append(row_v)
@@ -297,6 +305,9 @@ else:
 
         df = pd.DataFrame(m_rows)
         if not df.empty:
+            # 🚀 ČISTÉ ABECEDNÍ ŘAZENÍ (Dvojice Titul + Body zůstanou spolu)
+            df = df.sort_values(by="SortKey").drop(columns=["SortKey"])
+            
             def style_matrix(r):
                 s = [''] * len(r)
                 if r.get("Type") == "Points": return ['color: #888; font-style: italic; background-color: #f8f9fa'] * len(r)
@@ -386,6 +397,9 @@ else:
 
         df_iv = pd.DataFrame(iv_results)
         if not df_iv.empty:
+            # 🚀 ABECEDNÍ ŘAZENÍ PRO STRÁNKU IV
+            df_iv = df_iv.sort_values(by="Titul")
+            
             def apply_all_styles(row):
                 styles = [''] * len(row); up = row["Potenciál %"]
                 bg = 'background-color: #d4edda' if up > 0 else ('background-color: #f8d7da' if up < 0 else '')
@@ -416,6 +430,9 @@ else:
         
         df_c = pd.DataFrame(c_rows)
         if not df_c.empty:
+            # 🚀 ABECEDNÍ ŘAZENÍ PRO STRÁNKU KALENDÁŘE
+            df_c = df_c.sort_values(by="Titul")
+            
             def style_calendar(r):
                 s = [''] * len(r); d_idx = r.index.get_loc("Dní do")
                 if r["Dní do"] < 0: s[d_idx] = 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold'
