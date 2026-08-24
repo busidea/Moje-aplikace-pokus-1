@@ -63,7 +63,7 @@ def nacti_seznam(odkaz):
     except:
         return pd.DataFrame()
 
-# --- ODOLNÉ STAHOVÁNÍ DAT ---
+# --- ODOLNÉ STAHOVÁNÍ DAT S SAFE FALLBACKEM ---
 @st.cache_data(ttl=1800)
 def fetch_all_stock_data(tickers):
     stock_data = {}
@@ -120,14 +120,30 @@ def fetch_all_stock_data(tickers):
         except:
             return None
 
-    # Stahování po jednotlivých tickerech pro vyšší spolehlivost
+    # Stahování po jednotlivých tickerech s fallbackem
     for t in tickers:
+        res = None
         try:
             tk = yf.Ticker(t)
             res = zpracuj_info(t, tk.info)
-            if res: stock_data[t] = res
-        except: pass
-                
+        except:
+            pass
+        
+        if res:
+            stock_data[t] = res
+        else:
+            # Záložní objekt pro případ výpadku Yahoo API, aby akcie nezmizela
+            stock_data[t] = {
+                "name": t, "cena_zive": 0.0, "zmena_zive": 0.0, "vzdalenost_ma50": 0.0,
+                "trailingPE": 0.0, "forwardPE": 0.0, "priceToSales": 0.0, "priceToBook": 0.0,
+                "marketCap": 0.0, "freeCashflow": 0.0, "grossMargins": 0.0, "gm_3y": 0.0,
+                "profitMargins": 0.0, "nm_3y": 0.0, "returnOnEquity": 0.0, "roe_3y": 0.0,
+                "revenueGrowth": 0.0, "earningsGrowth": 0.0, "debtToEquity": 0.0,
+                "dividendYield": 0.0, "dividendRate": 0.0, "currency": "USD",
+                "targetMeanPrice": 0.0, "exDividendDate": None, "recommendationKey": "-",
+                "trailingEps": 0.0, "bookValue": 0.0, "totalRevenue": 0.0, "sharesOutstanding": 1.0
+            }
+            
     return stock_data
 
 # --- INICIALIZACE VSTUPŮ ---
@@ -149,13 +165,24 @@ raw_data = []
 for row in df_raw_list.to_dict('records'):
     t = str(row.get('Ticker', '')).strip().upper()
     kat_hodnota = str(row.get('Kategorie', '')).strip()
-    if t not in data_trhu or not data_trhu[t]: continue
-    fund = data_trhu[t]
+    
+    # Použijeme data z trhu nebo bezpečný záložní slovník
+    fund = data_trhu.get(t, {
+        "name": t, "cena_zive": 0.0, "zmena_zive": 0.0, "vzdalenost_ma50": 0.0,
+        "trailingPE": 0.0, "forwardPE": 0.0, "priceToSales": 0.0, "priceToBook": 0.0,
+        "marketCap": 0.0, "freeCashflow": 0.0, "grossMargins": 0.0, "gm_3y": 0.0,
+        "profitMargins": 0.0, "nm_3y": 0.0, "returnOnEquity": 0.0, "roe_3y": 0.0,
+        "revenueGrowth": 0.0, "earningsGrowth": 0.0, "debtToEquity": 0.0,
+        "dividendYield": 0.0, "dividendRate": 0.0, "currency": "USD",
+        "targetMeanPrice": 0.0, "exDividendDate": None, "recommendationKey": "-",
+        "trailingEps": 0.0, "bookValue": 0.0, "totalRevenue": 0.0, "sharesOutstanding": 1.0
+    })
 
     raw_data.append({
-        "t": t, "inf": fund, "vzdalenost_ma50": fund["vzdalenost_ma50"], "cena_zive": fund["cena_zive"], "zmena_zive": fund["zmena_zive"],
-        "kat": kat_hodnota, "earn": row.get('Earnings Day'), "name": fund["name"],
-        "gm_3y": fund["gm_3y"], "nm_3y": fund["nm_3y"], "roe_3y": fund["roe_3y"]
+        "t": t, "inf": fund, "vzdalenost_ma50": fund.get("vzdalenost_ma50", 0.0), 
+        "cena_zive": fund.get("cena_zive", 0.0), "zmena_zive": fund.get("zmena_zive", 0.0),
+        "kat": kat_hodnota, "earn": row.get('Earnings Day'), "name": fund.get("name", t),
+        "gm_3y": fund.get("gm_3y", 0.0), "nm_3y": fund.get("nm_3y", 0.0), "roe_3y": fund.get("roe_3y", 0.0)
     })
 
 # --- 4. BOČNÍ PANEL (SIDEBAR NAV) ---
@@ -436,7 +463,7 @@ else:
             tax_rate = 0.0 if ticker in ["BTI", "SHEL"] or ".LON" in ticker else (0.15 if currency in ["USD", "CZK"] else 0.25)
             d_yield_net = d_yield_gross * (1 - tax_rate)
 
-            c_rows.append({"Titul": item["name"], "Ticker": ticker, "Earnings": item["earn"] if not pd.isna(item["earn"]) else "-", "Dní do": days_to, "Dividenda": f"{safe_float(inf.get('dividendRate', 0.0)):.2f} {currency}", "Div. výnos (hrubý)": d_yield_gross, "Čistý výnos (odhad)": d_yield_net, "Ex-Date": ex_dt.strftime('%d.%m.%Y') if ex_dt else "-", "Doporučení": inf.get('recommendationKey', '-').replace('_', ' ').title(), "Vzdálenost od MA50": item["vzdalenost_ma50"]})
+            c_rows.append({"Titul": item["name"], "Ticker": ticker, "Earnings": item["earn"] if not pd.isna(item["earn"]) else "-", "Dní do": days_to, "Dividenda": f"{safe_float(inf.get('dividendRate', 0.0)):.2f} {currency}", "Div. výnos (hrubý)": d_yield_gross, "Čistý výnos (odhad)": d_yield_net, "Ex-Date": ex_dt.strftime('%d.%m.%Y') if ex_dt else "-", "Doporučení": str(inf.get('recommendationKey', '-')).replace('_', ' ').title(), "Vzdálenost od MA50": item["vzdalenost_ma50"]})
         
         df_c = pd.DataFrame(c_rows)
         if not df_c.empty:
@@ -519,4 +546,4 @@ Dodrž PŘESNĚ následující strukturu:
                             st.error("❌ AI nevrátila žádný text. Zkuste to znovu.")
 
                     except Exception as e:
-                        st.error(f"❌ Při generování došlo k chybě: {e}. Bezplatné AI rozhraní g4f bývá nestabilní. Pokud chyba přetrvává, doporučuji přepnout na oficiální API klíč (OpenAI / Gemini).")
+                        st.error(f"❌ Při generování došlo k chybě: {e}. Bezplatné AI rozhraní g4f bývá nestabilní.")
